@@ -1,5 +1,4 @@
-import { PathFinderMiniAdapter, NavigationSatelliteAdapter } from "./pathfinding-interface";
-import { getScenario, printHeader, measureTime, measurePathLength, BenchmarkResult, printRow, calculateStats, measureExecutionTime } from './utils';
+import { getScenario, printHeader, measureTime, measurePathLength, BenchmarkResult, printRow, calculateStats, measureExecutionTime, getAdapter } from './utils';
 
 function compare(n1: number, n2: number): string {
   const change = n2 - n1;
@@ -8,18 +7,22 @@ function compare(n1: number, n2: number): string {
   return `${sign}${percent.toFixed(2)}%`;
 }
 
-async function runScenario(scenarioName: string) {
+async function runScenario(
+  scenarioName: string, 
+  baselineAdapterName: string, 
+  candidateAdapterName: string
+) {
   const { game, routes, performanceIterations } = await getScenario(scenarioName);
+
+  const baseline = getAdapter(game, baselineAdapterName);
+  const candidate = getAdapter(game, candidateAdapterName);
 
   console.log(`Scenario: ${scenarioName}`);
   console.log(`Routes: ${routes.length}`);
   console.log("");
-  console.log(`Baseline: PathFinder.Mini`);
-  console.log(`Candidate: TradeShipNavigator`);
+  console.log(`Baseline: ${baseline.name}`);
+  console.log(`Candidate: ${candidate.name}`);
   console.log("");
-
-  const baseline = new PathFinderMiniAdapter(game);
-  const candidate = new NavigationSatelliteAdapter(game);
 
   // =============================================================================
 
@@ -170,6 +173,8 @@ async function runScenario(scenarioName: string) {
   console.log("");
 }
 
-// Get scenario from command line argument
 const scenarioName = process.argv[2] || "giantworldmap-lite";
-runScenario(scenarioName);
+const candidateAdapterName = process.argv[3] || "NavSat";
+const baselineAdapterName = process.argv[4] || "PF.Mini";
+
+runScenario(scenarioName, baselineAdapterName, candidateAdapterName);
