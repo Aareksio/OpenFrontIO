@@ -31,6 +31,16 @@ interface Sector {
   connections: GatewayConnection[];
 }
 
+interface DebugInfo {
+  gatewayPath: number[] | null;
+  gatewayWaypoints: Array<[number, number]> | null;
+  initialPath: TileRef[] | null;
+  smoothedPath: TileRef[] | null;
+  allGateways: Array<{ x: number; y: number; edge: 'right' | 'bottom'; length: number }>;
+  sectorSize: number;
+  timings: { [key: string]: number };
+}
+
 function bfsSearch<T>(
   map: GameMap,
   start: TileRef,
@@ -456,14 +466,8 @@ export class TradeShipNavigator {
   private graph!: GatewayGraph;
   private initialized = false;
 
-  public debugInfo: {
-    gatewayPath: number[] | null;
-    gatewayWaypoints: Array<[number, number]> | null;
-    initialPath: TileRef[] | null;
-    smoothedPath: TileRef[] | null;
-    allGateways: Array<{ x: number; y: number; edge: 'right' | 'bottom'; length: number }>;
-    sectorSize: number;
-  } | null = null;
+  public debugInfo: DebugInfo | null = null;
+  private debugTimeStart: number | null = null;
 
   constructor(
     private game: Game,
@@ -483,35 +487,37 @@ export class TradeShipNavigator {
       this.initialize();
     }
 
-    this.debugInfo = null;
+    if (debug) {
+      this.debugInfo = {
+        gatewayPath: null,
+        gatewayWaypoints: null,
+        initialPath: null,
+        smoothedPath: null,
+        allGateways: this.getAllGatewaysDebugInfo(),
+        sectorSize: this.graph.sectorSize,
+        timings: {},
+      };
+    }
 
     const dist = this.game.manhattanDist(from, to);
 
     if (dist < 500) {
+      if (debug) this.debugTimeStart = performance.now();
       const localPath = this.findLocalPath(from, to, 2000);
+      if (debug) this.debugInfo!.timings.earlyExitLocalPath = performance.now() - this.debugTimeStart!;
 
       if (localPath) {
-        if (debug) {
-          this.debugInfo = {
-            gatewayPath: null,
-            gatewayWaypoints: null,
-            initialPath: null,
-            smoothedPath: null,
-            allGateways: this.getAllGatewaysDebugInfo(),
-            sectorSize: this.graph.sectorSize,
-          };
-
-          console.log(`  [DEBUG] Direct local path found for dist=${dist}, length=${localPath.length}`);
-        }
-
+        if (debug) console.log(`  [DEBUG] Direct local path found for dist=${dist}, length=${localPath.length}`);
         return localPath;
       }
       
       if (debug) console.log(`  [DEBUG] Direct path failed for dist=${dist}, falling back to gateway graph`);
     }
 
+    if (debug) this.debugTimeStart = performance.now();
     const startGateway = this.findNearestGateway(from);
     const endGateway = this.findNearestGateway(to);
+    if (debug) this.debugInfo!.timings.findGateways = performance.now() - this.debugTimeStart!;
 
     if (!startGateway) {
       if (debug) console.log(`  [DEBUG] Cannot find start gateway for (${this.game.x(from)}, ${this.game.y(from)})`);
@@ -524,23 +530,15 @@ export class TradeShipNavigator {
     }
 
     if (startGateway.id === endGateway.id) {
-      if (debug) {
-        this.debugInfo = {
-          gatewayPath: null,
-          gatewayWaypoints: null,
-          initialPath: null,
-          smoothedPath: null,
-          allGateways: this.getAllGatewaysDebugInfo(),
-          sectorSize: this.graph.sectorSize,
-        };
-
-        console.log(`  [DEBUG] Start and end gateways are the same (ID=${startGateway.id}), finding local path`);
-      }
-
+      if (debug) console.log(`  [DEBUG] Start and end gateways are the same (ID=${startGateway.id}), finding local path`);
       return this.findLocalPath(from, to);
     }
 
+    if (debug) this.debugTimeStart = performance.now();
     const gatewayPath = this.findGatewayPath(startGateway.id, endGateway.id);
+    if (debug) this.debugInfo!.timings.findGatewayPath = performance.now() - this.debugTimeStart!;
+
+    if (debug) this.debugInfo!.gatewayPath = gatewayPath;
 
     if (!gatewayPath) {
       if (debug) console.log(`  [DEBUG] No gateway path between gateways ${startGateway.id} and ${endGateway.id}`);
@@ -549,14 +547,13 @@ export class TradeShipNavigator {
 
     if (debug) console.log(`  [DEBUG] Gateway path found: ${gatewayPath.length} waypoints`);
 
-    const waypoints: TileRef[] = [
-      from,
-      ...gatewayPath.map(gwId => this.graph.getGateway(gwId)!.tile),
-      to
-    ];
-
     const initialPath: TileRef[] = [];
+    const waypoints: TileRef[] = [from, ...gatewayPath.map(gwId => this.graph.getGateway(gwId)!.tile), to];
 
+    if (debug) this.debugInfo!.initialPath = initialPath;
+    if (debug) this.debugInfo!.gatewayWaypoints = waypoints.map(tile => [this.game.x(tile), this.game.y(tile)]);
+
+    if (debug) this.debugTimeStart = performance.now();
     for (let i = 0; i < waypoints.length - 1; i++) {
       const segment = this.findLocalPath(waypoints[i], waypoints[i + 1]);
 
@@ -571,32 +568,16 @@ export class TradeShipNavigator {
         initialPath.push(...segment.slice(1));
       }
     }
+    if (debug) this.debugInfo!.timings.buildInitialPath = performance.now() - this.debugTimeStart!;
 
     if (debug) console.log(`  [DEBUG] Initial path: ${initialPath.length} tiles`);
 
-    // Apply adaptive path smoothing - larger windows for longer paths
-    // Scale smoothing window based on path length for better optimization
-    let N = 100; // default window
-    if (initialPath.length > 3000) {
-      N = 300; // large window for very long paths
-    } else if (initialPath.length > 1000) {
-      N = 200; // medium window for long paths
-    }
+    if (debug) this.debugTimeStart = performance.now();
+    const smoothedPath = this.smoothPath(initialPath)
+    if (debug) this.debugInfo!.timings.buildSmoothPath = performance.now() - this.debugTimeStart!;
 
-    const smoothedPath = initialPath.length > 2 * N ? this.smoothPath(initialPath, N) : initialPath;
-
-    if (debug) console.log(`  [DEBUG] Smoothed path (N=${N}): ${initialPath.length} → ${smoothedPath.length} tiles`);
-
-    if (debug) {
-      this.debugInfo = {
-        gatewayPath,
-        gatewayWaypoints: waypoints.map(tile => [this.game.x(tile), this.game.y(tile)]),
-        initialPath: [...initialPath],
-        smoothedPath: [...smoothedPath],
-        allGateways: this.getAllGatewaysDebugInfo(),
-        sectorSize: this.graph.sectorSize,
-      };
-    }
+    if (debug) console.log(`  [DEBUG] Smoothed path: ${initialPath.length} → ${smoothedPath.length} tiles`);
+    if (debug) this.debugInfo!.smoothedPath = smoothedPath;
 
     return smoothedPath;
   }
@@ -685,42 +666,135 @@ export class TradeShipNavigator {
     return null
   }
 
-  private smoothPath(path: TileRef[], N: number = 100): TileRef[] {
+  private tracePath(from: TileRef, to: TileRef): TileRef[] | null {
+    const x0 = this.game.x(from);
+    const y0 = this.game.y(from);
+    const x1 = this.game.x(to);
+    const y1 = this.game.y(to);
+
+    const tiles: TileRef[] = [];
+
+    // Bresenham's line algorithm - trace and collect all tiles
+    const dx = Math.abs(x1 - x0);
+    const dy = Math.abs(y1 - y0);
+    const sx = x0 < x1 ? 1 : -1;
+    const sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+
+    let x = x0;
+    let y = y0;
+
+    while (true) {
+      const tile = this.game.ref(x, y);
+      if (!this.game.isWater(tile)) {
+        return null; // Path blocked
+      }
+
+      tiles.push(tile);
+
+      if (x === x1 && y === y1) {
+        break;
+      }
+
+      const e2 = 2 * err;
+      const shouldMoveX = e2 > -dy;
+      const shouldMoveY = e2 < dx;
+
+      if (shouldMoveX && shouldMoveY) {
+        // Diagonal move - need to expand into two 4-directional moves
+        // Try moving X first, then Y
+        x += sx;
+        err -= dy;
+
+        const intermediateTile = this.game.ref(x, y);
+        if (!this.game.isWater(intermediateTile)) {
+          // X first doesn't work, try Y first instead
+          x -= sx; // undo
+          err += dy; // undo
+
+          y += sy;
+          err += dx;
+
+          const altTile = this.game.ref(x, y);
+          if (!this.game.isWater(altTile)) {
+            return null; // Neither direction works
+          }
+          tiles.push(altTile);
+
+          // Now move X
+          x += sx;
+          err -= dy;
+        } else {
+          tiles.push(intermediateTile);
+
+          // Now move Y
+          y += sy;
+          err += dx;
+        }
+      } else {
+        // Single-axis move
+        if (shouldMoveX) {
+          x += sx;
+          err -= dy;
+        }
+        if (shouldMoveY) {
+          y += sy;
+          err += dx;
+        }
+      }
+    }
+
+    return tiles;
+  }
+
+  private smoothPath(path: TileRef[]): TileRef[] {
     if (path.length <= 2) {
       return path;
     }
 
-    const result = [...path];
-    let currentPos = 0;
+    const smoothed: TileRef[] = [];
+    let current = 0;
 
-    while (currentPos < result.length - 1) {
-      // Look N tiles ahead
-      const targetPos = Math.min(currentPos + N, result.length - 1);
+    while (current < path.length - 1) {
+      // Look as far ahead as possible while maintaining line of sight
+      let farthest = current + 1;
+      let bestTrace: TileRef[] | null = null;
 
-      if (targetPos <= currentPos) {
-        // No room to smooth
-        break;
+      for (let i = current + 2; i < path.length; i += 50) {
+        const trace = this.tracePath(path[current], path[i]);
+
+        if (trace !== null) {
+          farthest = i;
+          bestTrace = trace;
+        } else {
+          break;
+        }
       }
 
-      // Find direct path between current position and target
-      const directPath = this.findLocalPath(result[currentPos], result[targetPos]);
+      // Also try the final tile if we haven't already
+      if (farthest < path.length - 1 && (path.length - 1 - current) % 10 !== 0) {
+        const trace = this.tracePath(path[current], path[path.length - 1]);
+        if (trace !== null) {
+          farthest = path.length - 1;
+          bestTrace = trace;
+        }
+      }
 
-      if (directPath !== null && directPath.length > 0) {
-        // Replace the segment [currentPos, targetPos] with the direct path
-        const oldSegmentLength = targetPos - currentPos + 1;
-
-        // Remove old segment and insert new one
-        result.splice(currentPos, oldSegmentLength, ...directPath);
-
-        // Move forward by min(N/2, length of new segment)
-        const moveDistance = Math.min(Math.floor(N / 2), directPath.length - 1);
-        currentPos += Math.max(1, moveDistance);
+      // Add the traced path (or just current tile if no improvement)
+      if (bestTrace !== null && farthest > current + 1) {
+        // Add all tiles from the trace except the last one (to avoid duplication)
+        smoothed.push(...bestTrace.slice(0, -1));
       } else {
-        // Can't smooth this segment, move forward
-        currentPos += Math.max(1, Math.floor(N / 2));
+        // No LOS improvement, just add current tile
+        smoothed.push(path[current]);
       }
+
+      current = farthest;
     }
 
-    return result;
+    // Add the final tile
+    smoothed.push(path[path.length - 1]);
+
+    return smoothed;
   }
 }
