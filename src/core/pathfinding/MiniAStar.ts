@@ -14,7 +14,7 @@ export class GameMapAdapter implements GraphAdapter<TileRef> {
     return this.gameMap.neighbors(node);
   }
 
-  cost(node: TileRef): number {
+  cost(node: TileRef, _from?: TileRef): number {
     let base = this.gameMap.cost(node);
     // Avoid crossing water when possible
     if (!this.waterPath && this.gameMap.isWater(node)) {

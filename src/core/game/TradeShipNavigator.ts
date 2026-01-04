@@ -128,8 +128,15 @@ class GatewayGraphAdapter implements GraphAdapter<number> {
     return connections.map(conn => conn.to);
   }
 
-  cost(_node: number): number {
-    return 1; // Base cost, actual cost is in the connection
+  cost(to: number, from?: number): number {
+    if (from === undefined) {
+      // Fallback for node-based cost (shouldn't be used in gateway graph)
+      return 1;
+    }
+
+    const connections = this.graph.getConnections(from);
+    const connection = connections.find(conn => conn.to === to);
+    return connection?.cost ?? 1;
   }
 
   position(node: number): { x: number; y: number } {
