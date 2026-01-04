@@ -562,6 +562,14 @@ export class TradeShipNavigator {
       this.initialize();
     }
 
+    // Distance-based optimization: skip gateway graph for short distances
+    const dist = this.game.manhattanDist(from, to);
+
+    // For very short distances (< 100 tiles), skip gateway graph entirely
+    if (dist < 100) {
+      return this.findDetailedLocalPath(from, to);
+    }
+
     // Find nearest gateways to start and end
     const startGateway = this.findNearestGateway(from);
     const endGateway = this.findNearestGateway(to);
