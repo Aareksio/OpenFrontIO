@@ -8,8 +8,6 @@ export type BenchmarkRoute = {
   name: string,
   from: TileRef,
   to: TileRef,
-  fromCoord: [number, number],
-  toCoord: [number, number],
 }
 
 export type BenchmarkResult = {
@@ -61,8 +59,6 @@ export async function getScenario(
         name: `${fromName} → ${toName}`,
         from: game.ref(fromCoord[0], fromCoord[1]),
         to: game.ref(toCoord[0], toCoord[1]),
-        fromCoord,
-        toCoord,
       };
     }
   );
