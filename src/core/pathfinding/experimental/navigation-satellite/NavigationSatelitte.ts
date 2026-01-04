@@ -24,6 +24,7 @@ interface GatewayConnection {
   from: number;         // Gateway ID
   to: number;           // Gateway ID
   cost: number;         // Path cost/difficulty
+  path?: TileRef[];     // Optional cached path between gateways (on miniMap)
 }
 
 // Sector contains all gateways and their connections
@@ -118,9 +119,9 @@ class GatewayGraphBuilder {
   static readonly SECTOR_SIZE = 32;
 
   static build(
-    game: Game, 
-    sectorSize: number = GatewayGraphBuilder.SECTOR_SIZE, 
-    debug: boolean = false
+    game: Game,
+    sectorSize: number = GatewayGraphBuilder.SECTOR_SIZE,
+    debug: boolean = false,
   ): GatewayGraph {
     const startTime = performance.now();
 
@@ -429,7 +430,7 @@ class GatewayGraphBuilder {
     miniMap: GameMap,
     sectorSize: number,
     gatewayConnections: Map<number, GatewayConnection[]>,
-    fastBFS: FastBFS
+    fastBFS: FastBFS,
   ): void {
     const gateways = sector.gateways;
 
@@ -445,43 +446,44 @@ class GatewayGraphBuilder {
         const dx = Math.abs(gateways[i].x - gateways[j].x);
         const dy = Math.abs(gateways[i].y - gateways[j].y);
         const manhattanDist = dx + dy;
-        const maxDistance = sectorSize * 12;
+        const maxDistance = sectorSize * 3;
 
         if (manhattanDist > maxDistance) {
           continue;
         }
 
-        // Try to find path between gateways in same water component
         const cost = GatewayGraphBuilder.findLocalPathCost(
           gateways[i].tile, gateways[j].tile, miniMap, sectorSize, fastBFS
         );
 
-        if (cost !== -1) {
-          const connection1: GatewayConnection = {
-            from: gateways[i].id,
-            to: gateways[j].id,
-            cost: cost
-          };
-
-          const connection2: GatewayConnection = {
-            from: gateways[j].id,
-            to: gateways[i].id,
-            cost: cost
-          };
-
-          sector.connections.push(connection1, connection2);
-
-          if (!gatewayConnections.has(gateways[i].id)) {
-            gatewayConnections.set(gateways[i].id, []);
-          }
-
-          if (!gatewayConnections.has(gateways[j].id)) {
-            gatewayConnections.set(gateways[j].id, []);
-          }
-
-          gatewayConnections.get(gateways[i].id)!.push(connection1);
-          gatewayConnections.get(gateways[j].id)!.push(connection2);
+        if (cost === -1) {
+          continue;
         }
+
+        const connection1: GatewayConnection = {
+          from: gateways[i].id,
+          to: gateways[j].id,
+          cost: cost
+        };
+
+        const connection2: GatewayConnection = {
+          from: gateways[j].id,
+          to: gateways[i].id,
+          cost: cost
+        };
+
+        sector.connections.push(connection1, connection2);
+
+        if (!gatewayConnections.has(gateways[i].id)) {
+          gatewayConnections.set(gateways[i].id, []);
+        }
+
+        if (!gatewayConnections.has(gateways[j].id)) {
+          gatewayConnections.set(gateways[j].id, []);
+        }
+
+        gatewayConnections.get(gateways[i].id)!.push(connection1);
+        gatewayConnections.get(gateways[j].id)!.push(connection2);
       }
     }
   }
@@ -489,8 +491,7 @@ class GatewayGraphBuilder {
   private static findLocalPathCost(
     from: TileRef, to: TileRef, miniMap: GameMap, sectorSize: number, fastBFS: FastBFS
   ): number {
-    // Gateways are already on miniMap, so use them directly
-    const maxDistance = sectorSize * 12; // Balance connectivity and performance
+    const maxDistance = sectorSize * 3;
 
     const result = fastBFS.search(
       miniMap, from, maxDistance,
@@ -498,7 +499,6 @@ class GatewayGraphBuilder {
         if (tile === to) {
           return dist;
         }
-
         return null;
       }
     );
@@ -518,6 +518,7 @@ export class NavigationSatellite {
 
   constructor(
     private game: Game,
+    private options: { cachePaths?: boolean } = {}
   ) {}
 
   initialize(debug: boolean = false) {
@@ -602,38 +603,82 @@ export class NavigationSatellite {
     if (debug) console.log(`  [DEBUG] Gateway path found: ${gatewayPath.length} waypoints`);
 
     const initialPath: TileRef[] = [];
-    // Convert gateway miniMap tiles to full map tiles
     const map = this.game.map();
     const miniMap = this.game.miniMap();
-    const waypoints: TileRef[] = [
-      from,
-      ...gatewayPath.map(gwId => {
-        const gw = this.graph.getGateway(gwId)!;
-        // Gateway tile is on miniMap, convert to full map (x2)
-        return map.ref(miniMap.x(gw.tile) * 2, miniMap.y(gw.tile) * 2);
-      }),
-      to
-    ];
 
-    if (debug) this.debugInfo!.initialPath = initialPath;
-    if (debug) this.debugInfo!.gatewayWaypoints = waypoints.map(tile => [this.game.x(tile), this.game.y(tile)]);
+    if (debug) {
+      this.debugInfo!.gatewayWaypoints = gatewayPath.map(gwId => {
+        const gw = this.graph.getGateway(gwId)!;
+        return [miniMap.x(gw.tile) * 2, miniMap.y(gw.tile) * 2];
+      });
+    }
 
     if (debug) this.debugTimeStart = performance.now();
-    for (let i = 0; i < waypoints.length - 1; i++) {
-      const segment = this.findLocalPath(waypoints[i], waypoints[i + 1]);
 
-      if (!segment) {
+    // 1. Find path from start to first gateway
+    const firstGateway = this.graph.getGateway(gatewayPath[0])!;
+    const firstGatewayTile = map.ref(miniMap.x(firstGateway.tile) * 2, miniMap.y(firstGateway.tile) * 2);
+    const startSegment = this.findLocalPath(from, firstGatewayTile);
+
+    if (!startSegment) {
+      return null;
+    }
+
+    initialPath.push(...startSegment);
+
+    // 2. Build path through gateways
+    for (let i = 0; i < gatewayPath.length - 1; i++) {
+      const fromGwId = gatewayPath[i];
+      const toGwId = gatewayPath[i + 1];
+
+      // Get the connection
+      const connections = this.graph.getConnections(fromGwId);
+      const connection = connections.find(conn => conn.to === toGwId);
+
+      if (!connection) {
         return null;
       }
 
-      if (i === 0) {
-        initialPath.push(...segment);
-      } else {
-        // Skip first tile to avoid duplication
-        initialPath.push(...segment.slice(1));
+      if (connection.path) {
+        // Use cached path if available
+        initialPath.push(...connection.path.slice(1));
+        continue;
+      }
+
+      const fromGw = this.graph.getGateway(fromGwId)!;
+      const toGw = this.graph.getGateway(toGwId)!;
+      const fromTile = map.ref(miniMap.x(fromGw.tile) * 2, miniMap.y(fromGw.tile) * 2);
+      const toTile = map.ref(miniMap.x(toGw.tile) * 2, miniMap.y(toGw.tile) * 2);
+
+      const segmentPath = this.findLocalPath(fromTile, toTile);
+
+      if (!segmentPath) {
+        return null;
+      }
+
+      // Skip first tile to avoid duplication
+      initialPath.push(...segmentPath.slice(1));
+
+      if (this.options.cachePaths) {
+        // Cache the path for future reuse
+        connection.path = segmentPath;
       }
     }
+
+    // 3. Find path from last gateway to end
+    const lastGateway = this.graph.getGateway(gatewayPath[gatewayPath.length - 1])!;
+    const lastGatewayTile = map.ref(miniMap.x(lastGateway.tile) * 2, miniMap.y(lastGateway.tile) * 2);
+    const endSegment = this.findLocalPath(lastGatewayTile, to);
+
+    if (!endSegment) {
+      return null;
+    }
+
+    // Skip first tile to avoid duplication
+    initialPath.push(...endSegment.slice(1));
+
     if (debug) this.debugInfo!.timings.buildInitialPath = performance.now() - this.debugTimeStart!;
+    if (debug) this.debugInfo!.initialPath = initialPath;
 
     if (debug) console.log(`  [DEBUG] Initial path: ${initialPath.length} tiles`);
 
@@ -739,7 +784,14 @@ export class NavigationSatellite {
     let x = x0;
     let y = y0;
 
+    // Safety limit to prevent excessive memory allocation
+    const maxTiles = 100000;
+    let iterations = 0;
+
     while (true) {
+      if (iterations++ > maxTiles) {
+        return null; // Path too long
+      }
       const tile = this.game.ref(x, y);
       if (!this.game.isWater(tile)) {
         return null; // Path blocked
