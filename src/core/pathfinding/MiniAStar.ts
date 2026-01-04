@@ -100,7 +100,7 @@ export class MiniAStar implements AStar<TileRef> {
   }
 }
 
-function fixExtremes(upscaled: Cell[], cellDst: Cell, cellSrc?: Cell): Cell[] {
+export function fixExtremes(upscaled: Cell[], cellDst: Cell, cellSrc?: Cell): Cell[] {
   if (cellSrc !== undefined) {
     const srcIndex = findCell(upscaled, cellSrc);
     if (srcIndex === -1) {
@@ -125,7 +125,7 @@ function fixExtremes(upscaled: Cell[], cellDst: Cell, cellSrc?: Cell): Cell[] {
   return upscaled;
 }
 
-function upscalePath(path: Cell[], scaleFactor: number = 2): Cell[] {
+export function upscalePath(path: Cell[], scaleFactor: number = 2): Cell[] {
   // Scale up each point
   const scaledPath = path.map(
     (point) => new Cell(point.x * scaleFactor, point.y * scaleFactor),
@@ -167,7 +167,7 @@ function upscalePath(path: Cell[], scaleFactor: number = 2): Cell[] {
   return smoothPath;
 }
 
-function findCell(upscaled: Cell[], cellDst: Cell): number {
+export function findCell(upscaled: Cell[], cellDst: Cell): number {
   for (let i = 0; i < upscaled.length; i++) {
     if (upscaled[i].x === cellDst.x && upscaled[i].y === cellDst.y) {
       return i;

@@ -1,7 +1,7 @@
-import { Game, Cell } from 'src/core/game/Game';
+import { Game } from 'src/core/game/Game';
 import { GameMap, TileRef } from 'src/core/game/GameMap';
 import { SerialAStar, GraphAdapter } from 'src/core/pathfinding/SerialAStar';
-import { GameMapAdapter } from 'src/core/pathfinding/MiniAStar';
+import { MiniAStar } from 'src/core/pathfinding/MiniAStar';
 import { PathFindResultType } from 'src/core/pathfinding/AStar';
 
 // Gateway represents a continuous stretch of traversable tiles on a sector edge
@@ -31,9 +31,41 @@ interface Sector {
   connections: GatewayConnection[];
 }
 
-// ============================================================================
-// GatewayGraph - Immutable graph data structure
-// ============================================================================
+function bfsSearch<T>(
+  map: GameMap,
+  start: TileRef,
+  maxDistance: number,
+  visitor: (tile: TileRef, dist: number) => T | null,
+): T | null {
+  const visited = new Set<TileRef>();
+  const queue: { tile: TileRef; dist: number }[] = [{ tile: start, dist: 0 }];
+  visited.add(start);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+
+    if (current.dist > maxDistance) {
+      continue;
+    }
+
+    // Call visitor - if it returns non-null, we're done
+    const result = visitor(current.tile, current.dist);
+    if (result !== null) {
+      return result;
+    }
+
+    // Expand BFS
+    const neighbors = map.neighbors(current.tile);
+    for (const neighbor of neighbors) {
+      if (!visited.has(neighbor) && map.isWater(neighbor)) {
+        visited.add(neighbor);
+        queue.push({ tile: neighbor, dist: current.dist + 1 });
+      }
+    }
+  }
+
+  return null;
+}
 
 class GatewayGraph {
   constructor(
@@ -102,74 +134,6 @@ class GatewayGraphAdapter implements GraphAdapter<number> {
   }
 }
 
-// Helper functions for path upscaling (from MiniAStar)
-function upscalePath(path: Cell[], scaleFactor: number = 2): Cell[] {
-  const scaledPath = path.map(
-    (point) => new Cell(point.x * scaleFactor, point.y * scaleFactor),
-  );
-
-  const smoothPath: Cell[] = [];
-
-  for (let i = 0; i < scaledPath.length - 1; i++) {
-    const current = scaledPath[i];
-    const next = scaledPath[i + 1];
-
-    smoothPath.push(current);
-
-    const dx = next.x - current.x;
-    const dy = next.y - current.y;
-    const distance = Math.max(Math.abs(dx), Math.abs(dy));
-    const steps = distance;
-
-    for (let step = 1; step < steps; step++) {
-      smoothPath.push(
-        new Cell(
-          Math.round(current.x + (dx * step) / steps),
-          Math.round(current.y + (dy * step) / steps),
-        ),
-      );
-    }
-  }
-
-  if (scaledPath.length > 0) {
-    smoothPath.push(scaledPath[scaledPath.length - 1]);
-  }
-
-  return smoothPath;
-}
-
-function fixExtremes(upscaled: Cell[], cellDst: Cell, cellSrc?: Cell): Cell[] {
-  if (cellSrc !== undefined) {
-    const srcIndex = findCell(upscaled, cellSrc);
-    if (srcIndex === -1) {
-      upscaled.unshift(cellSrc);
-    } else if (srcIndex !== 0) {
-      upscaled = upscaled.slice(srcIndex);
-    }
-  }
-
-  const dstIndex = findCell(upscaled, cellDst);
-  if (dstIndex === -1) {
-    upscaled.push(cellDst);
-  } else if (dstIndex !== upscaled.length - 1) {
-    upscaled = upscaled.slice(0, dstIndex + 1);
-  }
-  return upscaled;
-}
-
-function findCell(cells: Cell[], target: Cell): number {
-  for (let i = 0; i < cells.length; i++) {
-    if (cells[i].x === target.x && cells[i].y === target.y) {
-      return i;
-    }
-  }
-  return -1;
-}
-
-// ============================================================================
-// GatewayGraphBuilder - Builds gateway graphs from game maps
-// ============================================================================
-
 class GatewayGraphBuilder {
   private static readonly SECTOR_SIZE = 64;
 
@@ -219,7 +183,8 @@ class GatewayGraphBuilder {
   }
 
   private static processSector(
-    sx: number, sy: number, sectorsX: number, sectorsY: number,
+    sx: number, sy: number, 
+    sectorsX: number, sectorsY: number,
     game: Game, sectorSize: number,
     sectors: Map<string, Sector>,
     gateways: Map<number, Gateway>,
@@ -240,9 +205,11 @@ class GatewayGraphBuilder {
     // Find gateways on right edge (if not the last column)
     if (sx < sectorsX - 1) {
       const edgeX = Math.min(baseX + sectorSize - 1, width - 1);
+
       const newGateways = GatewayGraphBuilder.findGatewaysOnVerticalEdge(
         edgeX, baseY, sy, sectorsY, game, sectorSize, nextGatewayId
       );
+
       sector.gateways.push(...newGateways);
 
       // Register gateways
@@ -253,20 +220,24 @@ class GatewayGraphBuilder {
       // Also add these gateways to the adjacent sector on the right
       const rightSectorKey = GatewayGraphBuilder.getSectorKey(sx + 1, sy);
       let rightSector = sectors.get(rightSectorKey);
+
       if (!rightSector) {
         rightSector = { x: sx + 1, y: sy, gateways: [], connections: [] };
         sectors.set(rightSectorKey, rightSector);
       }
+
       rightSector.gateways.push(...newGateways);
     }
 
     // Find gateways on bottom edge (if not the last row)
     if (sy < sectorsY - 1) {
       const edgeY = Math.min(baseY + sectorSize - 1, height - 1);
+
       const newGateways = GatewayGraphBuilder.findGatewaysOnHorizontalEdge(
         edgeY, baseX, sx, sectorsX, game, sectorSize,
         gateways.size > 0 ? Math.max(...gateways.keys()) + 1 : nextGatewayId
       );
+
       sector.gateways.push(...newGateways);
 
       // Register gateways
@@ -277,10 +248,12 @@ class GatewayGraphBuilder {
       // Also add these gateways to the adjacent sector below
       const bottomSectorKey = GatewayGraphBuilder.getSectorKey(sx, sy + 1);
       let bottomSector = sectors.get(bottomSectorKey);
+
       if (!bottomSector) {
         bottomSector = { x: sx, y: sy + 1, gateways: [], connections: [] };
         sectors.set(bottomSectorKey, bottomSector);
       }
+
       bottomSector.gateways.push(...newGateways);
     }
   }
@@ -292,6 +265,7 @@ class GatewayGraphBuilder {
     const gateways: Gateway[] = [];
     const height = game.height();
     const maxY = Math.min(baseY + sectorSize, height);
+
     let gatewayStart = -1;
     let currentId = startId;
 
@@ -308,6 +282,8 @@ class GatewayGraphBuilder {
         if (gatewayStart !== -1) {
           const gatewayLength = y - gatewayStart;
           const midY = gatewayStart + Math.floor(gatewayLength / 2);
+
+          gatewayStart = -1;
           gateways.push({
             id: currentId++,
             sectorX: Math.floor(x / sectorSize),
@@ -318,7 +294,6 @@ class GatewayGraphBuilder {
             length: gatewayLength,
             tile: game.ref(x, midY)
           });
-          gatewayStart = -1;
         }
       }
     }
@@ -326,6 +301,7 @@ class GatewayGraphBuilder {
     if (gatewayStart !== -1) {
       const gatewayLength = maxY - gatewayStart;
       const midY = gatewayStart + Math.floor(gatewayLength / 2);
+
       gateways.push({
         id: currentId++,
         sectorX: Math.floor(x / sectorSize),
@@ -348,6 +324,7 @@ class GatewayGraphBuilder {
     const gateways: Gateway[] = [];
     const width = game.width();
     const maxX = Math.min(baseX + sectorSize, width);
+
     let gatewayStart = -1;
     let currentId = startId;
 
@@ -364,6 +341,8 @@ class GatewayGraphBuilder {
         if (gatewayStart !== -1) {
           const gatewayLength = x - gatewayStart;
           const midX = gatewayStart + Math.floor(gatewayLength / 2);
+
+          gatewayStart = -1;
           gateways.push({
             id: currentId++,
             sectorX: sectorX,
@@ -374,7 +353,6 @@ class GatewayGraphBuilder {
             length: gatewayLength,
             tile: game.ref(midX, y)
           });
-          gatewayStart = -1;
         }
       }
     }
@@ -382,6 +360,7 @@ class GatewayGraphBuilder {
     if (gatewayStart !== -1) {
       const gatewayLength = maxX - gatewayStart;
       const midX = gatewayStart + Math.floor(gatewayLength / 2);
+
       gateways.push({
         id: currentId++,
         sectorX: sectorX,
@@ -417,6 +396,7 @@ class GatewayGraphBuilder {
             to: gateways[j].id,
             cost: cost
           };
+
           const connection2: GatewayConnection = {
             from: gateways[j].id,
             to: gateways[i].id,
@@ -428,6 +408,7 @@ class GatewayGraphBuilder {
           if (!gatewayConnections.has(gateways[i].id)) {
             gatewayConnections.set(gateways[i].id, []);
           }
+
           if (!gatewayConnections.has(gateways[j].id)) {
             gatewayConnections.set(gateways[j].id, []);
           }
@@ -443,10 +424,12 @@ class GatewayGraphBuilder {
     from: TileRef, to: TileRef, game: Game, sectorSize: number
   ): number {
     const miniMap = game.miniMap();
+
     const miniFrom = miniMap.ref(
       Math.floor(game.x(from) / 2),
       Math.floor(game.y(from) / 2)
     );
+
     const miniTo = miniMap.ref(
       Math.floor(game.x(to) / 2),
       Math.floor(game.y(to) / 2)
@@ -454,61 +437,33 @@ class GatewayGraphBuilder {
 
     const maxDistance = sectorSize * 3;
 
-    const result = GatewayGraphBuilder.bfsSearch(
+    const result = bfsSearch(
       miniMap, miniFrom, maxDistance,
       (tile, dist) => {
         if (tile === miniTo) {
           return dist * 2;
         }
+
         return null;
       }
     );
 
     return result ?? -1;
   }
-
-  private static bfsSearch<T>(
-    map: GameMap,
-    start: TileRef,
-    maxDistance: number,
-    visitor: (tile: TileRef, dist: number) => T | null,
-  ): T | null {
-    const visited = new Set<TileRef>();
-    const queue: { tile: TileRef; dist: number }[] = [{ tile: start, dist: 0 }];
-    visited.add(start);
-
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-
-      if (current.dist > maxDistance) {
-        continue;
-      }
-
-      const result = visitor(current.tile, current.dist);
-      if (result !== null) {
-        return result;
-      }
-
-      const neighbors = map.neighbors(current.tile);
-      for (const neighbor of neighbors) {
-        if (!visited.has(neighbor) && map.isWater(neighbor)) {
-          visited.add(neighbor);
-          queue.push({ tile: neighbor, dist: current.dist + 1 });
-        }
-      }
-    }
-
-    return null;
-  }
 }
-
-// ============================================================================
-// TradeShipNavigator - Uses gateway graph for pathfinding
-// ============================================================================
 
 export class TradeShipNavigator {
   private graph!: GatewayGraph;
   private initialized = false;
+
+  public debugInfo: {
+    gatewayPath: number[] | null;
+    gatewayWaypoints: Array<[number, number]> | null;
+    initialPath: TileRef[] | null;
+    smoothedPath: TileRef[] | null;
+    allGateways: Array<{ x: number; y: number; edge: 'right' | 'bottom'; length: number }>;
+    sectorSize: number;
+  } | null = null;
 
   constructor(
     private game: Game,
@@ -519,45 +474,142 @@ export class TradeShipNavigator {
     this.initialized = true;
   }
 
-  // Generic BFS search on a map with distance limit and visitor pattern
-  // Returns the first non-null result from the visitor, or null if search exhausted
-  private bfsSearch<T>(
-    map: GameMap,
-    start: TileRef,
-    maxDistance: number,
-    visitor: (tile: TileRef, dist: number) => T | null,
-  ): T | null {
-    const visited = new Set<TileRef>();
-    const queue: { tile: TileRef; dist: number }[] = [{ tile: start, dist: 0 }];
-    visited.add(start);
+  findPath(
+    from: TileRef, 
+    to: TileRef, 
+    debug: boolean = false
+  ): TileRef[] | null {
+    if (!this.initialized) {
+      this.initialize();
+    }
 
-    while (queue.length > 0) {
-      const current = queue.shift()!;
+    this.debugInfo = null;
 
-      if (current.dist > maxDistance) {
-        continue;
-      }
+    const dist = this.game.manhattanDist(from, to);
 
-      // Call visitor - if it returns non-null, we're done
-      const result = visitor(current.tile, current.dist);
-      if (result !== null) {
-        return result;
-      }
+    if (dist < 500) {
+      const localPath = this.findLocalPath(from, to, 2000);
 
-      // Expand BFS
-      const neighbors = map.neighbors(current.tile);
-      for (const neighbor of neighbors) {
-        if (!visited.has(neighbor) && map.isWater(neighbor)) {
-          visited.add(neighbor);
-          queue.push({ tile: neighbor, dist: current.dist + 1 });
+      if (localPath) {
+        if (debug) {
+          this.debugInfo = {
+            gatewayPath: null,
+            gatewayWaypoints: null,
+            initialPath: null,
+            smoothedPath: null,
+            allGateways: this.getAllGatewaysDebugInfo(),
+            sectorSize: this.graph.sectorSize,
+          };
+
+          console.log(`  [DEBUG] Direct local path found for dist=${dist}, length=${localPath.length}`);
         }
+
+        return localPath;
+      }
+      
+      if (debug) console.log(`  [DEBUG] Direct path failed for dist=${dist}, falling back to gateway graph`);
+    }
+
+    const startGateway = this.findNearestGateway(from);
+    const endGateway = this.findNearestGateway(to);
+
+    if (!startGateway) {
+      if (debug) console.log(`  [DEBUG] Cannot find start gateway for (${this.game.x(from)}, ${this.game.y(from)})`);
+      return null;
+    }
+
+    if (!endGateway) {
+      if (debug) console.log(`  [DEBUG] Cannot find end gateway for (${this.game.x(to)}, ${this.game.y(to)})`);
+      return null;
+    }
+
+    if (startGateway.id === endGateway.id) {
+      if (debug) {
+        this.debugInfo = {
+          gatewayPath: null,
+          gatewayWaypoints: null,
+          initialPath: null,
+          smoothedPath: null,
+          allGateways: this.getAllGatewaysDebugInfo(),
+          sectorSize: this.graph.sectorSize,
+        };
+
+        console.log(`  [DEBUG] Start and end gateways are the same (ID=${startGateway.id}), finding local path`);
+      }
+
+      return this.findLocalPath(from, to);
+    }
+
+    const gatewayPath = this.findGatewayPath(startGateway.id, endGateway.id);
+
+    if (!gatewayPath) {
+      if (debug) console.log(`  [DEBUG] No gateway path between gateways ${startGateway.id} and ${endGateway.id}`);
+      return null;
+    }
+
+    if (debug) console.log(`  [DEBUG] Gateway path found: ${gatewayPath.length} waypoints`);
+
+    const waypoints: TileRef[] = [
+      from,
+      ...gatewayPath.map(gwId => this.graph.getGateway(gwId)!.tile),
+      to
+    ];
+
+    const initialPath: TileRef[] = [];
+
+    for (let i = 0; i < waypoints.length - 1; i++) {
+      const segment = this.findLocalPath(waypoints[i], waypoints[i + 1]);
+
+      if (!segment) {
+        return null;
+      }
+
+      if (i === 0) {
+        initialPath.push(...segment);
+      } else {
+        // Skip first tile to avoid duplication
+        initialPath.push(...segment.slice(1));
       }
     }
 
-    return null;
+    if (debug) console.log(`  [DEBUG] Initial path: ${initialPath.length} tiles`);
+
+    // Apply adaptive path smoothing - larger windows for longer paths
+    // Scale smoothing window based on path length for better optimization
+    let N = 100; // default window
+    if (initialPath.length > 3000) {
+      N = 300; // large window for very long paths
+    } else if (initialPath.length > 1000) {
+      N = 200; // medium window for long paths
+    }
+
+    const smoothedPath = initialPath.length > 2 * N ? this.smoothPath(initialPath, N) : initialPath;
+
+    if (debug) console.log(`  [DEBUG] Smoothed path (N=${N}): ${initialPath.length} → ${smoothedPath.length} tiles`);
+
+    if (debug) {
+      this.debugInfo = {
+        gatewayPath,
+        gatewayWaypoints: waypoints.map(tile => [this.game.x(tile), this.game.y(tile)]),
+        initialPath: [...initialPath],
+        smoothedPath: [...smoothedPath],
+        allGateways: this.getAllGatewaysDebugInfo(),
+        sectorSize: this.graph.sectorSize,
+      };
+    }
+
+    return smoothedPath;
   }
 
-  // Find nearest gateway to a given tile
+  private getAllGatewaysDebugInfo(): Array<{ x: number; y: number; edge: 'right' | 'bottom'; length: number }> {
+    return this.graph.getAllGateways().map(gw => ({
+      x: gw.x,
+      y: gw.y,
+      edge: gw.edge,
+      length: gw.length,
+    }));
+  }
+
   private findNearestGateway(tile: TileRef): Gateway | null {
     const x = this.game.x(tile);
     const y = this.game.y(tile);
@@ -583,7 +635,7 @@ export class TradeShipNavigator {
 
     const maxDistance = this.graph.sectorSize * 3;
 
-    return this.bfsSearch(miniMap, miniFrom, maxDistance, (tile, _dist) => {
+    return bfsSearch(miniMap, miniFrom, maxDistance, (tile, _dist) => {
       // Check if any candidate gateway is at this position
       // Gateway positions are on full map, so convert minimap coords to full coords
       const fullX = miniMap.x(tile) * 2;
@@ -594,6 +646,7 @@ export class TradeShipNavigator {
         // (gateway could be at any position within the minimap tile's 2x2 area)
         const dx = Math.abs(gateway.x - fullX);
         const dy = Math.abs(gateway.y - fullY);
+
         if (dx <= 2 && dy <= 2) {
           return gateway;
         }
@@ -603,36 +656,40 @@ export class TradeShipNavigator {
     });
   }
 
-  // A* search on gateway graph using SerialAStar
-  private findGatewayPath(fromGatewayId: number, toGatewayId: number): number[] | null {
+  private findGatewayPath(
+    fromGatewayId: number, 
+    toGatewayId: number
+  ): number[] | null {
     const adapter = new GatewayGraphAdapter(this.graph);
+    const aStar = new SerialAStar(fromGatewayId, toGatewayId, 10000, 1, adapter, 0)
 
-    const aStar = new SerialAStar(
-      fromGatewayId,
-      toGatewayId,
-      10000, // iterations - gateway graph pathfinding
-      20,    // maxTries - same as PathFinder.Mini
-      adapter,
-      0      // no direction change penalty
-    );
-
-    const result = aStar.compute();
-    if (result === PathFindResultType.Completed) {
+    if (aStar.compute() === PathFindResultType.Completed) {
       return aStar.reconstructPath();
     }
 
-    return null;
+    return null
   }
 
-  // Smooth path using sliding window approach
-  // At each position, try to find a direct path N tiles ahead and replace the segment
-  // Move forward by N/2 and repeat
+  private findLocalPath(
+    from: TileRef, 
+    to: TileRef, 
+    maxIterations: number = 10000
+  ): TileRef[] | null {
+    const miniMap = this.game.miniMap();
+    const miniAStar = new MiniAStar(this.game, miniMap, from, to, maxIterations, 1);
+
+    if (miniAStar.compute() === PathFindResultType.Completed) {
+      return miniAStar.reconstructPath();
+    }
+
+    return null
+  }
+
   private smoothPath(path: TileRef[], N: number = 100): TileRef[] {
     if (path.length <= 2) {
       return path;
     }
 
-    // Work on a copy to avoid modifying the input
     const result = [...path];
     let currentPos = 0;
 
@@ -646,7 +703,7 @@ export class TradeShipNavigator {
       }
 
       // Find direct path between current position and target
-      const directPath = this.findDetailedLocalPath(result[currentPos], result[targetPos]);
+      const directPath = this.findLocalPath(result[currentPos], result[targetPos]);
 
       if (directPath !== null && directPath.length > 0) {
         // Replace the segment [currentPos, targetPos] with the direct path
@@ -665,193 +722,5 @@ export class TradeShipNavigator {
     }
 
     return result;
-  }
-
-  // Debug information returned when debug mode is enabled
-  public debugInfo: {
-    gatewayPath: number[] | null;
-    gatewayWaypoints: Array<[number, number]> | null;
-    initialPath: TileRef[] | null;
-    smoothedPath: TileRef[] | null;
-    allGateways: Array<{ x: number; y: number; edge: 'right' | 'bottom'; length: number }>;
-    sectorSize: number;
-  } | null = null;
-
-  // Main entry point for pathfinding
-  findPath(from: TileRef, to: TileRef, debug: boolean = false): TileRef[] | null {
-    if (!this.initialized) {
-      this.initialize();
-    }
-
-    // Reset debug info
-    this.debugInfo = null;
-
-    // Distance-based optimization: skip gateway graph for short distances
-    const dist = this.game.manhattanDist(from, to);
-
-    // For short distances (< 500 tiles), try direct local path first
-    // Gateway graph overhead dominates for distances under ~500 tiles
-    if (dist < 500) {
-      // Use limited iterations (2000) for quick check - if path is complex, fail fast
-      // and fall back to gateway graph. Full pathfinding uses 10000 iterations.
-      const localPath = this.findDetailedLocalPath(from, to, 2000);
-      if (localPath) {
-        if (debug) {
-          this.debugInfo = {
-            gatewayPath: null,
-            gatewayWaypoints: null,
-            initialPath: null,
-            smoothedPath: null,
-            allGateways: this.getAllGatewaysDebugInfo(),
-            sectorSize: this.graph.sectorSize,
-          };
-        }
-        return localPath;
-      }
-      // If direct path fails (e.g., complex route with obstacles),
-      // fall back to gateway graph routing
-      if (debug) console.log(`  [DEBUG] Direct path failed for dist=${dist}, falling back to gateway graph`);
-    }
-
-    // Find nearest gateways to start and end
-    const startGateway = this.findNearestGateway(from);
-    const endGateway = this.findNearestGateway(to);
-
-    if (!startGateway) {
-      if (debug) console.log(`  [DEBUG] Cannot find start gateway for (${this.game.x(from)}, ${this.game.y(from)})`);
-      return null;
-    }
-    if (!endGateway) {
-      if (debug) console.log(`  [DEBUG] Cannot find end gateway for (${this.game.x(to)}, ${this.game.y(to)})`);
-      return null;
-    }
-
-    // If same gateway, just do local pathfinding
-    if (startGateway.id === endGateway.id) {
-      if (debug) {
-        this.debugInfo = {
-          gatewayPath: null,
-          gatewayWaypoints: null,
-          initialPath: null,
-          smoothedPath: null,
-          allGateways: this.getAllGatewaysDebugInfo(),
-          sectorSize: this.graph.sectorSize,
-        };
-      }
-      return this.findDetailedLocalPath(from, to);
-    }
-
-    // Find path through gateway graph
-    const gatewayPath = this.findGatewayPath(startGateway.id, endGateway.id);
-    if (!gatewayPath) {
-      if (debug) console.log(`  [DEBUG] No gateway path between gateways ${startGateway.id} and ${endGateway.id}`);
-      return null;
-    }
-    if (debug) console.log(`  [DEBUG] Gateway path found: ${gatewayPath.length} waypoints`);
-
-    // Convert gateway IDs to waypoint tiles, including start and end positions
-    const gatewayWaypoints: TileRef[] = [
-      from,
-      ...gatewayPath.map(gwId => this.graph.getGateway(gwId)!.tile),
-      to
-    ];
-
-    // Build initial path by connecting gateway waypoints
-    const initialPath: TileRef[] = [];
-
-    for (let i = 0; i < gatewayWaypoints.length - 1; i++) {
-      const segment = this.findDetailedLocalPath(gatewayWaypoints[i], gatewayWaypoints[i + 1]);
-      if (!segment) return null;
-
-      if (i === 0) {
-        initialPath.push(...segment);
-      } else {
-        // Skip first tile to avoid duplication
-        initialPath.push(...segment.slice(1));
-      }
-    }
-
-    if (debug) console.log(`  [DEBUG] Initial path: ${initialPath.length} tiles`);
-
-    // Apply adaptive path smoothing - larger windows for longer paths
-    // Scale smoothing window based on path length for better optimization
-    let N = 100; // default window
-    if (initialPath.length > 3000) {
-      N = 300; // large window for very long paths
-    } else if (initialPath.length > 1000) {
-      N = 200; // medium window for long paths
-    }
-
-    const smoothedPath = initialPath.length > 2 * N
-      ? this.smoothPath(initialPath, N)
-      : initialPath;
-
-    if (debug) console.log(`  [DEBUG] Smoothed path (N=${N}): ${initialPath.length} → ${smoothedPath.length} tiles`);
-
-    // Store debug info
-    if (debug) {
-      this.debugInfo = {
-        gatewayPath,
-        gatewayWaypoints: gatewayWaypoints.map(tile => [this.game.x(tile), this.game.y(tile)]),
-        initialPath: [...initialPath],
-        smoothedPath: [...smoothedPath],
-        allGateways: this.getAllGatewaysDebugInfo(),
-        sectorSize: this.graph.sectorSize,
-      };
-    }
-
-    return smoothedPath;
-  }
-
-  private getAllGatewaysDebugInfo(): Array<{ x: number; y: number; edge: 'right' | 'bottom'; length: number }> {
-    return this.graph.getAllGateways().map(gw => ({
-      x: gw.x,
-      y: gw.y,
-      edge: gw.edge,
-      length: gw.length,
-    }));
-  }
-
-  // Detailed local pathfinding using SerialAStar on minimap (like PathFinder.Mini)
-  private findDetailedLocalPath(from: TileRef, to: TileRef, maxIterations: number = 10000): TileRef[] | null {
-    const miniMap = this.game.miniMap();
-
-    // Convert full-resolution coordinates to minimap coordinates (divide by 2)
-    const miniFrom = miniMap.ref(
-      Math.floor(this.game.x(from) / 2),
-      Math.floor(this.game.y(from) / 2)
-    );
-    const miniTo = miniMap.ref(
-      Math.floor(this.game.x(to) / 2),
-      Math.floor(this.game.y(to) / 2)
-    );
-
-    // Run A* on the minimap (4x smaller search space)
-    const adapter = new GameMapAdapter(miniMap, true); // waterPath = true for ships
-    const aStar = new SerialAStar(miniFrom, miniTo, maxIterations, 1, adapter, 0);
-    const result = aStar.compute();
-
-    if (result !== PathFindResultType.Completed) {
-      return null;
-    }
-
-    // Get the path on the minimap
-    const miniPath = aStar.reconstructPath();
-
-    // Convert minimap path to Cell array
-    const miniCells = miniPath.map(tile =>
-      new Cell(miniMap.x(tile), miniMap.y(tile))
-    );
-
-    // Upscale to full resolution
-    const fullResCells = upscalePath(miniCells, 2);
-
-    // Fix extremes to ensure start and end points are exact
-    const fromCell = new Cell(this.game.x(from), this.game.y(from));
-    const toCell = new Cell(this.game.x(to), this.game.y(to));
-    const fixedCells = fixExtremes(fullResCells, toCell, fromCell);
-
-    // Convert back to TileRefs
-    return fixedCells.map(cell => this.game.ref(cell.x, cell.y));
   }
 }
