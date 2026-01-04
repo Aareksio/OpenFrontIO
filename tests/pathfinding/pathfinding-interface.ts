@@ -1,0 +1,87 @@
+import { Game } from "../../src/core/game/Game";
+import { TileRef } from "../../src/core/game/GameMap";
+import { TradeShipNavigator } from "../../src/core/game/TradeShipNavigator";
+import { PathFinder } from "../../src/core/pathfinding/PathFinding";
+import { PathFindResultType } from "../../src/core/pathfinding/AStar";
+
+/**
+ * Common interface for pathfinding implementations.
+ * Allows benchmarking different pathfinding strategies uniformly.
+ */
+export interface PathfindingInterface {
+  /**
+   * Display name for this pathfinding implementation
+   */
+  readonly name: string;
+
+  /**
+   * Initialize the pathfinding implementation (e.g., build preprocessing structures).
+   * No-op if no initialization is required.
+   */
+  initialize(): void;
+
+  /**
+   * Find a path from start to end.
+   * @returns Array of tiles representing the path, or null if no path exists
+   */
+  findPath(from: TileRef, to: TileRef): TileRef[] | null;
+}
+
+export class PathFinderMiniAdapter implements PathfindingInterface {
+  readonly name = "PF.Mini";
+  private readonly game: Game;
+  private readonly maxIterations: number;
+
+  constructor(game: Game, options: { maxIterations?: number } = {}) {
+    this.game = game;
+    this.maxIterations = options.maxIterations ?? 250000;
+  }
+
+  initialize(): void {
+    // No initialization needed
+  }
+
+  findPath(from: TileRef, to: TileRef): TileRef[] | null {
+    try {
+      const pathfinder = PathFinder.Mini(this.game, this.maxIterations, true, 20);
+      const path: TileRef[] = [from];
+      let current = from;
+
+      while (true) {
+        const result = pathfinder.nextTile(current, to);
+
+        if (result.type === PathFindResultType.NextTile) {
+          path.push(result.node);
+          current = result.node;
+        } else if (result.type === PathFindResultType.Completed) {
+          return path;
+        } else if (result.type === PathFindResultType.PathNotFound) {
+          return null;
+        }
+      }
+    } catch (e) {
+      return null;
+    }
+  }
+}
+
+export class TradeShipNavigatorAdapter implements PathfindingInterface {
+  readonly name = "TSNav";
+  private readonly navigator: TradeShipNavigator;
+
+  constructor(game: Game) {
+    this.navigator = new TradeShipNavigator(game);
+  }
+
+  initialize(): void {
+    this.navigator.initialize();
+  }
+
+  findPath(from: TileRef, to: TileRef): TileRef[] | null {
+    try {
+      return this.navigator.findPath(from, to);
+    } catch (e) {
+      return null;
+    }
+  }
+}
