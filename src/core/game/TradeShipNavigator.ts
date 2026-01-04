@@ -269,15 +269,16 @@ export class TradeShipNavigator {
         // End of gateway stretch
         if (gatewayStart !== -1) {
           const gatewayLength = y - gatewayStart;
+          const midY = gatewayStart + Math.floor(gatewayLength / 2);
           gateways.push({
             id: this.nextGatewayId++,
             sectorX: Math.floor(x / TradeShipNavigator.SECTOR_SIZE),
             sectorY: sectorY,
             edge: 'right',
             x: x,
-            y: gatewayStart,
+            y: midY,
             length: gatewayLength,
-            tile: this.game.ref(x, gatewayStart)
+            tile: this.game.ref(x, midY)
           });
           gatewayStart = -1;
         }
@@ -287,15 +288,16 @@ export class TradeShipNavigator {
     // Handle gateway extending to edge
     if (gatewayStart !== -1) {
       const gatewayLength = maxY - gatewayStart;
+      const midY = gatewayStart + Math.floor(gatewayLength / 2);
       gateways.push({
         id: this.nextGatewayId++,
         sectorX: Math.floor(x / TradeShipNavigator.SECTOR_SIZE),
         sectorY: sectorY,
         edge: 'right',
         x: x,
-        y: gatewayStart,
+        y: midY,
         length: gatewayLength,
-        tile: this.game.ref(x, gatewayStart)
+        tile: this.game.ref(x, midY)
       });
     }
 
@@ -331,15 +333,16 @@ export class TradeShipNavigator {
         // End of gateway stretch
         if (gatewayStart !== -1) {
           const gatewayLength = x - gatewayStart;
+          const midX = gatewayStart + Math.floor(gatewayLength / 2);
           gateways.push({
             id: this.nextGatewayId++,
             sectorX: sectorX,
             sectorY: Math.floor(y / TradeShipNavigator.SECTOR_SIZE),
             edge: 'bottom',
-            x: gatewayStart,
+            x: midX,
             y: y,
             length: gatewayLength,
-            tile: this.game.ref(gatewayStart, y)
+            tile: this.game.ref(midX, y)
           });
           gatewayStart = -1;
         }
@@ -349,19 +352,58 @@ export class TradeShipNavigator {
     // Handle gateway extending to edge
     if (gatewayStart !== -1) {
       const gatewayLength = maxX - gatewayStart;
+      const midX = gatewayStart + Math.floor(gatewayLength / 2);
       gateways.push({
         id: this.nextGatewayId++,
         sectorX: sectorX,
         sectorY: Math.floor(y / TradeShipNavigator.SECTOR_SIZE),
         edge: 'bottom',
-        x: gatewayStart,
+        x: midX,
         y: y,
         length: gatewayLength,
-        tile: this.game.ref(gatewayStart, y)
+        tile: this.game.ref(midX, y)
       });
     }
 
     return gateways;
+  }
+
+  // Generic BFS search on a map with distance limit and visitor pattern
+  // Returns the first non-null result from the visitor, or null if search exhausted
+  private bfsSearch<T>(
+    map: GameMap,
+    start: TileRef,
+    maxDistance: number,
+    visitor: (tile: TileRef, dist: number) => T | null,
+  ): T | null {
+    const visited = new Set<TileRef>();
+    const queue: { tile: TileRef; dist: number }[] = [{ tile: start, dist: 0 }];
+    visited.add(start);
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+
+      if (current.dist > maxDistance) {
+        continue;
+      }
+
+      // Call visitor - if it returns non-null, we're done
+      const result = visitor(current.tile, current.dist);
+      if (result !== null) {
+        return result;
+      }
+
+      // Expand BFS
+      const neighbors = map.neighbors(current.tile);
+      for (const neighbor of neighbors) {
+        if (!visited.has(neighbor) && map.isWater(neighbor)) {
+          visited.add(neighbor);
+          queue.push({ tile: neighbor, dist: current.dist + 1 });
+        }
+      }
+    }
+
+    return null;
   }
 
   private buildSectorConnections(sector: Sector) {
@@ -415,35 +457,19 @@ export class TradeShipNavigator {
       Math.floor(this.game.y(to) / 2)
     );
 
-    // Use simple BFS on minimap with distance limit
+    // Use BFS on minimap with distance limit
     // Increased from SECTOR_SIZE to SECTOR_SIZE * 3 to allow cross-sector connections
     const maxDistance = TradeShipNavigator.SECTOR_SIZE * 3;
-    const visited = new Set<TileRef>();
-    const queue: { tile: TileRef; cost: number }[] = [{ tile: miniFrom, cost: 0 }];
-    visited.add(miniFrom);
 
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-
-      if (current.tile === miniTo) {
+    const result = this.bfsSearch(miniMap, miniFrom, maxDistance, (tile, dist) => {
+      if (tile === miniTo) {
         // Return cost scaled by 2 (approximate full-resolution distance)
-        return current.cost * 2;
+        return dist * 2;
       }
+      return null;
+    });
 
-      if (current.cost >= maxDistance) {
-        continue;
-      }
-
-      const neighbors = miniMap.neighbors(current.tile);
-      for (const neighbor of neighbors) {
-        if (!visited.has(neighbor) && miniMap.isWater(neighbor)) {
-          visited.add(neighbor);
-          queue.push({ tile: neighbor, cost: current.cost + 1 });
-        }
-      }
-    }
-
-    return -1; // Not connected
+    return result ?? -1; // Not connected
   }
 
   // Find nearest gateway to a given tile
@@ -455,8 +481,8 @@ export class TradeShipNavigator {
     const sectorX = Math.floor(x / TradeShipNavigator.SECTOR_SIZE);
     const sectorY = Math.floor(y / TradeShipNavigator.SECTOR_SIZE);
 
-    // Collect all candidate gateways with their distances
-    const candidates: { gateway: Gateway; dist: number }[] = [];
+    // Collect all candidate gateways from nearby sectors
+    const candidateGateways = new Set<Gateway>();
 
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
@@ -467,25 +493,44 @@ export class TradeShipNavigator {
 
         if (sector) {
           for (const gateway of sector.gateways) {
-            const dist = this.game.manhattanDist(tile, gateway.tile);
-            candidates.push({ gateway, dist });
+            candidateGateways.add(gateway);
           }
         }
       }
     }
 
-    // Sort by distance (closest first)
-    candidates.sort((a, b) => a.dist - b.dist);
-
-    // Verify connectivity for candidates in order, return first connected one
-    for (const candidate of candidates) {
-      const cost = this.findLocalPathCost(tile, candidate.gateway.tile);
-      if (cost !== -1) {
-        return candidate.gateway;
-      }
+    if (candidateGateways.size === 0) {
+      return null;
     }
 
-    return null;
+    // Use BFS to find the nearest reachable gateway (by water path distance)
+    // This ensures we only find gateways in the same water region
+    const miniMap = this.game.miniMap();
+    const miniFrom = miniMap.ref(
+      Math.floor(x / 2),
+      Math.floor(y / 2)
+    );
+
+    const maxDistance = TradeShipNavigator.SECTOR_SIZE * 3;
+
+    return this.bfsSearch(miniMap, miniFrom, maxDistance, (tile, _dist) => {
+      // Check if any candidate gateway is at this position
+      // Gateway positions are on full map, so convert minimap coords to full coords
+      const fullX = miniMap.x(tile) * 2;
+      const fullY = miniMap.y(tile) * 2;
+
+      for (const gateway of candidateGateways) {
+        // Check if gateway is within 2 tiles of current position
+        // (gateway could be at any position within the minimap tile's 2x2 area)
+        const dx = Math.abs(gateway.x - fullX);
+        const dy = Math.abs(gateway.y - fullY);
+        if (dx <= 2 && dy <= 2) {
+          return gateway;
+        }
+      }
+
+      return null;
+    });
   }
 
   // A* search on gateway graph using SerialAStar
@@ -499,7 +544,7 @@ export class TradeShipNavigator {
     const aStar = new SerialAStar(
       fromGatewayId,
       toGatewayId,
-      10000, // iterations - gateway graph is much smaller
+      10000, // iterations - gateway graph pathfinding
       20,    // maxTries - same as PathFinder.Mini
       adapter,
       0      // no direction change penalty
@@ -556,18 +601,50 @@ export class TradeShipNavigator {
     return result;
   }
 
+  // Debug information returned when debug mode is enabled
+  public debugInfo: {
+    gatewayPath: number[] | null;
+    gatewayWaypoints: Array<[number, number]> | null;
+    initialPath: TileRef[] | null;
+    smoothedPath: TileRef[] | null;
+    allGateways: Array<{ x: number; y: number; edge: 'right' | 'bottom'; length: number }>;
+    sectorSize: number;
+  } | null = null;
+
   // Main entry point for pathfinding
   findPath(from: TileRef, to: TileRef, debug: boolean = false): TileRef[] | null {
     if (!this.initialized) {
       this.initialize();
     }
 
+    // Reset debug info
+    this.debugInfo = null;
+
     // Distance-based optimization: skip gateway graph for short distances
     const dist = this.game.manhattanDist(from, to);
 
-    // For very short distances (< 100 tiles), skip gateway graph entirely
-    if (dist < 100) {
-      return this.findDetailedLocalPath(from, to);
+    // For short distances (< 500 tiles), try direct local path first
+    // Gateway graph overhead dominates for distances under ~500 tiles
+    if (dist < 500) {
+      // Use limited iterations (2000) for quick check - if path is complex, fail fast
+      // and fall back to gateway graph. Full pathfinding uses 10000 iterations.
+      const localPath = this.findDetailedLocalPath(from, to, 2000);
+      if (localPath) {
+        if (debug) {
+          this.debugInfo = {
+            gatewayPath: null,
+            gatewayWaypoints: null,
+            initialPath: null,
+            smoothedPath: null,
+            allGateways: this.getAllGatewaysDebugInfo(),
+            sectorSize: TradeShipNavigator.SECTOR_SIZE,
+          };
+        }
+        return localPath;
+      }
+      // If direct path fails (e.g., complex route with obstacles),
+      // fall back to gateway graph routing
+      if (debug) console.log(`  [DEBUG] Direct path failed for dist=${dist}, falling back to gateway graph`);
     }
 
     // Find nearest gateways to start and end
@@ -585,6 +662,16 @@ export class TradeShipNavigator {
 
     // If same gateway, just do local pathfinding
     if (startGateway.id === endGateway.id) {
+      if (debug) {
+        this.debugInfo = {
+          gatewayPath: null,
+          gatewayWaypoints: null,
+          initialPath: null,
+          smoothedPath: null,
+          allGateways: this.getAllGatewaysDebugInfo(),
+          sectorSize: TradeShipNavigator.SECTOR_SIZE,
+        };
+      }
       return this.findDetailedLocalPath(from, to);
     }
 
@@ -620,20 +707,47 @@ export class TradeShipNavigator {
 
     if (debug) console.log(`  [DEBUG] Initial path: ${initialPath.length} tiles`);
 
-    // Apply distance-based path smoothing
-    // Skip smoothing for very short paths to avoid overhead
-    const N = 100;
+    // Apply adaptive path smoothing - larger windows for longer paths
+    // Scale smoothing window based on path length for better optimization
+    let N = 100; // default window
+    if (initialPath.length > 3000) {
+      N = 300; // large window for very long paths
+    } else if (initialPath.length > 1000) {
+      N = 200; // medium window for long paths
+    }
+
     const smoothedPath = initialPath.length > 2 * N
       ? this.smoothPath(initialPath, N)
       : initialPath;
 
-    if (debug) console.log(`  [DEBUG] Smoothed path: ${initialPath.length} → ${smoothedPath.length} tiles`);
+    if (debug) console.log(`  [DEBUG] Smoothed path (N=${N}): ${initialPath.length} → ${smoothedPath.length} tiles`);
+
+    // Store debug info
+    if (debug) {
+      this.debugInfo = {
+        gatewayPath,
+        gatewayWaypoints: gatewayWaypoints.map(tile => [this.game.x(tile), this.game.y(tile)]),
+        initialPath: [...initialPath],
+        smoothedPath: [...smoothedPath],
+        allGateways: this.getAllGatewaysDebugInfo(),
+        sectorSize: TradeShipNavigator.SECTOR_SIZE,
+      };
+    }
 
     return smoothedPath;
   }
 
+  private getAllGatewaysDebugInfo(): Array<{ x: number; y: number; edge: 'right' | 'bottom'; length: number }> {
+    return Array.from(this.gateways.values()).map(gw => ({
+      x: gw.x,
+      y: gw.y,
+      edge: gw.edge,
+      length: gw.length,
+    }));
+  }
+
   // Detailed local pathfinding using SerialAStar on minimap (like PathFinder.Mini)
-  private findDetailedLocalPath(from: TileRef, to: TileRef): TileRef[] | null {
+  private findDetailedLocalPath(from: TileRef, to: TileRef, maxIterations: number = 10000): TileRef[] | null {
     const miniMap = this.game.miniMap();
 
     // Convert full-resolution coordinates to minimap coordinates (divide by 2)
@@ -648,17 +762,9 @@ export class TradeShipNavigator {
 
     // Run A* on the minimap (4x smaller search space)
     const adapter = new GameMapAdapter(miniMap, true); // waterPath = true for ships
-
-    const aStar = new SerialAStar(
-      miniFrom,
-      miniTo,
-      10000, // iterations - increased to match PathFinder.Mini capabilities
-      20,    // maxTries - same as PathFinder.Mini (allows up to 200k total iterations)
-      adapter,
-      0      // no direction change penalty
-    );
-
+    const aStar = new SerialAStar(miniFrom, miniTo, maxIterations, 1, adapter, 0);
     const result = aStar.compute();
+
     if (result !== PathFindResultType.Completed) {
       return null;
     }
