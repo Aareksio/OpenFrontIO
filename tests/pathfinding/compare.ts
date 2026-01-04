@@ -17,6 +17,7 @@ async function runScenario(
   const baseline = getAdapter(game, baselineAdapterName);
   const candidate = getAdapter(game, candidateAdapterName);
 
+  console.log(`Date: ${new Date().toISOString()}`);
   console.log(`Scenario: ${scenarioName}`);
   console.log(`Routes: ${routes.length}`);
   console.log("");
