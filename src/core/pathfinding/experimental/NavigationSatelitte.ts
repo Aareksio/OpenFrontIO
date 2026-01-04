@@ -469,7 +469,7 @@ class GatewayGraphBuilder {
   }
 }
 
-export class TradeShipNavigator {
+export class NavigationSatellite {
   private graph!: GatewayGraph;
   private initialized = false;
 

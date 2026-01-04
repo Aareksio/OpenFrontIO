@@ -1,4 +1,4 @@
-import { PathFinderMiniAdapter, TradeShipNavigatorAdapter } from "./pathfinding-interface";
+import { PathFinderMiniAdapter, NavigationSatelliteAdapter } from "./pathfinding-interface";
 import { getScenario, printHeader, measureTime, measurePathLength, BenchmarkResult, printRow, calculateStats, measureExecutionTime } from './utils';
 
 function compare(n1: number, n2: number): string {
@@ -19,7 +19,7 @@ async function runScenario(scenarioName: string) {
   console.log("");
 
   const baseline = new PathFinderMiniAdapter(game);
-  const candidate = new TradeShipNavigatorAdapter(game);
+  const candidate = new NavigationSatelliteAdapter(game);
 
   // =============================================================================
 

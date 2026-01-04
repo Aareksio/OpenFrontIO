@@ -1,6 +1,6 @@
 import { Game } from "../../src/core/game/Game";
 import { TileRef } from "../../src/core/game/GameMap";
-import { TradeShipNavigator } from "../../src/core/game/TradeShipNavigator";
+import { NavigationSatellite } from "../../src/core/pathfinding/experimental/NavigationSatelitte";
 import { PathFinder } from "../../src/core/pathfinding/PathFinding";
 import { PathFindResultType } from "../../src/core/pathfinding/AStar";
 
@@ -65,21 +65,21 @@ export class PathFinderMiniAdapter implements PathfindingInterface {
   }
 }
 
-export class TradeShipNavigatorAdapter implements PathfindingInterface {
-  readonly name = "TSNav";
-  private readonly navigator: TradeShipNavigator;
+export class NavigationSatelliteAdapter implements PathfindingInterface {
+  readonly name = "NavSat";
+  private readonly satellite: NavigationSatellite;
 
   constructor(game: Game) {
-    this.navigator = new TradeShipNavigator(game);
+    this.satellite = new NavigationSatellite(game);
   }
 
   initialize(): void {
-    this.navigator.initialize();
+    this.satellite.initialize();
   }
 
   findPath(from: TileRef, to: TileRef): TileRef[] | null {
     try {
-      return this.navigator.findPath(from, to);
+      return this.satellite.findPath(from, to);
     } catch (e) {
       return null;
     }

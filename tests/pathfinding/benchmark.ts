@@ -96,7 +96,7 @@ async function runScenario(adapterName: string, scenarioName: string) {
 }
 
 // Get adapter and scenario from command line arguments
-const adapterName = process.argv[2] || "TSNav";
+const adapterName = process.argv[2] || "NavSat";
 const scenarioName = process.argv[3] || "giantworldmap-lite";
 
 runScenario(adapterName, scenarioName);
