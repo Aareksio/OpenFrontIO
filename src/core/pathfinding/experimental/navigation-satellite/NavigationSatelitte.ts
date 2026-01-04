@@ -6,33 +6,26 @@ import { getWaterComponentId } from './WaterComponents';
 import { FastBFS } from './FastBFS';
 import { FastAStar, FastAStarAdapter } from './FastAStar';
 
-// Gateway represents a continuous stretch of traversable tiles on a sector edge
 interface Gateway {
-  id: number;           // Unique gateway identifier
-  sectorX: number;      // Sector coordinates
-  sectorY: number;
-  edge: 'right' | 'bottom';  // Which edge of the sector
-  x: number;            // Primary point (lowest x,y)
+  id: number;
+  x: number;
   y: number;
-  length: number;       // Width (for bottom edge) or height (for right edge)
-  tile: TileRef;        // The primary tile reference
-  componentId: number;  // Water component ID for connectivity filtering
+  tile: TileRef;
+  componentId: number;
 }
 
-// Connection between two gateways within the same sector or adjacent sectors
-interface GatewayConnection {
-  from: number;         // Gateway ID
-  to: number;           // Gateway ID
-  cost: number;         // Path cost/difficulty
-  path?: TileRef[];     // Optional cached path between gateways (on miniMap)
+interface Edge {
+  from: number;
+  to: number;
+  cost: number;
+  path?: TileRef[];
 }
 
-// Sector contains all gateways and their connections
 interface Sector {
   x: number;
   y: number;
   gateways: Gateway[];
-  connections: GatewayConnection[];
+  edges: Edge[];
 }
 
 interface DebugInfo {
@@ -40,7 +33,7 @@ interface DebugInfo {
   gatewayWaypoints: Array<[number, number]> | null;
   initialPath: TileRef[] | null;
   smoothedPath: TileRef[] | null;
-  allGateways: Array<{ x: number; y: number; edge: 'right' | 'bottom'; length: number }>;
+  allGateways: Array<{ x: number; y: number; }>;
   sectorSize: number;
   timings: { [key: string]: number };
 }
@@ -49,7 +42,7 @@ class GatewayGraph {
   constructor(
     readonly sectors: ReadonlyMap<number, Sector>,
     readonly gateways: ReadonlyMap<number, Gateway>,
-    readonly connections: ReadonlyMap<number, GatewayConnection[]>,
+    readonly edges: ReadonlyMap<number, Edge[]>,
     readonly sectorSize: number,
     readonly sectorsX: number,
   ) {}
@@ -66,8 +59,8 @@ class GatewayGraph {
     return this.gateways.get(id);
   }
 
-  getConnections(gatewayId: number): GatewayConnection[] {
-    return this.connections.get(gatewayId) ?? [];
+  getEdges(gatewayId: number): Edge[] {
+    return this.edges.get(gatewayId) ?? [];
   }
 
   getNearbySectorGateways(sectorX: number, sectorY: number): Gateway[] {
@@ -93,14 +86,14 @@ class FastGatewayGraphAdapter implements FastAStarAdapter {
   constructor(private graph: GatewayGraph) {}
 
   getNeighbors(node: number): number[] {
-    const connections = this.graph.getConnections(node);
-    return connections.map(conn => conn.to);
+    const edges = this.graph.getEdges(node);
+    return edges.map(edge => edge.to);
   }
 
   getCost(from: number, to: number): number {
-    const connections = this.graph.getConnections(from);
-    const connection = connections.find(conn => conn.to === to);
-    return connection?.cost ?? 1;
+    const edges = this.graph.getEdges(from);
+    const edge = edges.find(edge => edge.to === to);
+    return edge?.cost ?? 1;
   }
 
   heuristic(node: number, goal: number): number {
@@ -127,7 +120,7 @@ class GatewayGraphBuilder {
 
     const sectors = new Map<number, Sector>();
     const gateways = new Map<number, Gateway>();
-    const gatewayConnections = new Map<number, GatewayConnection[]>();
+    const edges = new Map<number, Edge[]>();
 
     let nextGatewayId = 0;
 
@@ -156,7 +149,7 @@ class GatewayGraphBuilder {
     
     if (debug) console.log(`  Phase 1 (Gateway identification): ${(phase1End - phase1Start).toFixed(2)}ms`);
 
-    // Phase 2: Build intra-sector connections
+    // Phase 2: Build intra-sector edges
     const phase2Start = performance.now();
     let potentialBFSCalls = 0;
     let skippedByComponentFilter = 0;
@@ -188,10 +181,10 @@ class GatewayGraphBuilder {
       }
 
       GatewayGraphBuilder.buildSectorConnections(
-        sector, miniMap, sectorSize, gatewayConnections, fastBFS
+        sector, miniMap, sectorSize, edges, fastBFS
       );
 
-      successfulConnections += sector.connections.length / 2; // Divide by 2 because bidirectional
+      successfulConnections += sector.edges.length / 2; // Divide by 2 because bidirectional
     }
 
     const actualBFSCalls = potentialBFSCalls - skippedByComponentFilter - skippedByManhattanDistance;
@@ -215,7 +208,7 @@ class GatewayGraphBuilder {
       console.log(`Total sectors: ${sectors.size}`);
     }
 
-    return new GatewayGraph(sectors, gateways, gatewayConnections, sectorSize, sectorsX);
+    return new GatewayGraph(sectors, gateways, edges, sectorSize, sectorsX);
   }
 
   private static getSectorKey(sectorX: number, sectorY: number, sectorsX: number): number {
@@ -234,7 +227,7 @@ class GatewayGraphBuilder {
     const sectorKey = GatewayGraphBuilder.getSectorKey(sx, sy, sectorsX);
     let sector = sectors.get(sectorKey);
     if (!sector) {
-      sector = { x: sx, y: sy, gateways: [], connections: [] };
+      sector = { x: sx, y: sy, gateways: [], edges: [] };
       sectors.set(sectorKey, sector);
     }
 
@@ -263,7 +256,7 @@ class GatewayGraphBuilder {
       let rightSector = sectors.get(rightSectorKey);
 
       if (!rightSector) {
-        rightSector = { x: sx + 1, y: sy, gateways: [], connections: [] };
+        rightSector = { x: sx + 1, y: sy, gateways: [], edges: [] };
         sectors.set(rightSectorKey, rightSector);
       }
 
@@ -291,7 +284,7 @@ class GatewayGraphBuilder {
       let bottomSector = sectors.get(bottomSectorKey);
 
       if (!bottomSector) {
-        bottomSector = { x: sx, y: sy + 1, gateways: [], connections: [] };
+        bottomSector = { x: sx, y: sy + 1, gateways: [], edges: [] };
         sectors.set(bottomSectorKey, bottomSector);
       }
 
@@ -328,12 +321,8 @@ class GatewayGraphBuilder {
           const tile = miniMap.ref(x, midY);
           gateways.push({
             id: currentId++,
-            sectorX: Math.floor(x / sectorSize),
-            sectorY: sectorY,
-            edge: 'right',
             x: x,
             y: midY,
-            length: gatewayLength,
             tile: tile,
             componentId: getWaterComponentId(miniMap, tile)
           });
@@ -348,12 +337,8 @@ class GatewayGraphBuilder {
       const tile = miniMap.ref(x, midY);
       gateways.push({
         id: currentId++,
-        sectorX: Math.floor(x / sectorSize),
-        sectorY: sectorY,
-        edge: 'right',
         x: x,
         y: midY,
-        length: gatewayLength,
         tile: tile,
         componentId: getWaterComponentId(miniMap, tile)
       });
@@ -391,12 +376,8 @@ class GatewayGraphBuilder {
           const tile = miniMap.ref(midX, y);
           gateways.push({
             id: currentId++,
-            sectorX: sectorX,
-            sectorY: Math.floor(y / sectorSize),
-            edge: 'bottom',
             x: midX,
             y: y,
-            length: gatewayLength,
             tile: tile,
             componentId: getWaterComponentId(miniMap, tile)
           });
@@ -411,12 +392,8 @@ class GatewayGraphBuilder {
       const tile = miniMap.ref(midX, y);
       gateways.push({
         id: currentId++,
-        sectorX: sectorX,
-        sectorY: Math.floor(y / sectorSize),
-        edge: 'bottom',
         x: midX,
         y: y,
-        length: gatewayLength,
         tile: tile,
         componentId: getWaterComponentId(miniMap, tile)
       });
@@ -429,7 +406,7 @@ class GatewayGraphBuilder {
     sector: Sector,
     miniMap: GameMap,
     sectorSize: number,
-    gatewayConnections: Map<number, GatewayConnection[]>,
+    edges: Map<number, Edge[]>,
     fastBFS: FastBFS,
   ): void {
     const gateways = sector.gateways;
@@ -460,30 +437,30 @@ class GatewayGraphBuilder {
           continue;
         }
 
-        const connection1: GatewayConnection = {
+        const edge1: Edge = {
           from: gateways[i].id,
           to: gateways[j].id,
           cost: cost
         };
 
-        const connection2: GatewayConnection = {
+        const edge2: Edge = {
           from: gateways[j].id,
           to: gateways[i].id,
           cost: cost
         };
 
-        sector.connections.push(connection1, connection2);
+        sector.edges.push(edge1, edge2);
 
-        if (!gatewayConnections.has(gateways[i].id)) {
-          gatewayConnections.set(gateways[i].id, []);
+        if (!edges.has(gateways[i].id)) {
+          edges.set(gateways[i].id, []);
         }
 
-        if (!gatewayConnections.has(gateways[j].id)) {
-          gatewayConnections.set(gateways[j].id, []);
+        if (!edges.has(gateways[j].id)) {
+          edges.set(gateways[j].id, []);
         }
 
-        gatewayConnections.get(gateways[i].id)!.push(connection1);
-        gatewayConnections.get(gateways[j].id)!.push(connection2);
+        edges.get(gateways[i].id)!.push(edge1);
+        edges.get(gateways[j].id)!.push(edge2);
       }
     }
   }
@@ -632,16 +609,16 @@ export class NavigationSatellite {
       const toGwId = gatewayPath[i + 1];
 
       // Get the connection
-      const connections = this.graph.getConnections(fromGwId);
-      const connection = connections.find(conn => conn.to === toGwId);
+      const edges = this.graph.getEdges(fromGwId);
+      const edge = edges.find(edge => edge.to === toGwId);
 
-      if (!connection) {
+      if (!edge) {
         return null;
       }
 
-      if (connection.path) {
+      if (edge.path) {
         // Use cached path if available
-        initialPath.push(...connection.path.slice(1));
+        initialPath.push(...edge.path.slice(1));
         continue;
       }
 
@@ -661,7 +638,7 @@ export class NavigationSatellite {
 
       if (this.options.cachePaths) {
         // Cache the path for future reuse
-        connection.path = segmentPath;
+        edge.path = segmentPath;
       }
     }
 
@@ -692,13 +669,8 @@ export class NavigationSatellite {
     return smoothedPath;
   }
 
-  private getAllGatewaysDebugInfo(): Array<{ x: number; y: number; edge: 'right' | 'bottom'; length: number }> {
-    return this.graph.getAllGateways().map(gw => ({
-      x: gw.x,
-      y: gw.y,
-      edge: gw.edge,
-      length: gw.length,
-    }));
+  private getAllGatewaysDebugInfo(): Array<{ x: number; y: number; }> {
+    return this.graph.getAllGateways().map(gw => ({ x: gw.x, y: gw.y }));
   }
 
   private findNearestGateway(tile: TileRef): Gateway | null {
