@@ -1,6 +1,6 @@
 import { Game } from '../../src/core/game/Game';
 import { TileRef } from '../../src/core/game/GameMap';
-import { PathFinderMiniAdapter, PathfindingInterface, TradeShipNavigatorAdapter } from './pathfinding-interface';
+import { PathFinderMiniAdapter, PathfindingInterface, NavigationSatelliteAdapter } from './pathfinding-interface';
 
 export const DEFAULT_ITERATIONS = 100
 
@@ -35,7 +35,7 @@ export function getAdapter(
     case "PF.Mini":
       return new PathFinderMiniAdapter(game);
     case "TSNav":
-      return new TradeShipNavigatorAdapter(game);
+      return new NavigationSatelliteAdapter(game);
     default:
       throw new Error(`Unknown pathfinding adapter: ${name}`);
   }
