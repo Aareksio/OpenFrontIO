@@ -34,7 +34,7 @@ export function getAdapter(
   switch (name) {
     case "PF.Mini":
       return new PathFinderMiniAdapter(game);
-    case "SatNav":
+    case "NavSat":
       return new NavigationSatelliteAdapter(game);
     case "Vimacs.TileToShore":
       return new VimacsTileToShoreAdapter(game);
