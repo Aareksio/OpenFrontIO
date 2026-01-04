@@ -14,6 +14,7 @@ async function runScenario(adapterName: string, scenarioName: string) {
   const { game, routes, performanceIterations } = await getScenario(scenarioName);
   const adapter = getAdapter(game, adapterName);
 
+  console.log(`Date: ${new Date().toISOString()}`);
   console.log(`Benchmarking: ${adapterName}`);
   console.log(`Scenario: ${scenarioName}`);
   console.log(`Routes: ${routes.length}`);

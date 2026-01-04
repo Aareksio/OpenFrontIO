@@ -1,10 +1,10 @@
 import { Game } from '../../../game/Game';
 import { GameMap, TileRef } from '../../../game/GameMap';
-import { SerialAStar, GraphAdapter } from '../../SerialAStar';
 import { MiniAStar } from '../../MiniAStar';
 import { PathFindResultType } from '../../AStar';
 import { getWaterComponentId } from './WaterComponents';
 import { FastBFS } from './FastBFS';
+import { FastAStar, FastAStarAdapter } from './FastAStar';
 
 // Gateway represents a continuous stretch of traversable tiles on a sector edge
 interface Gateway {
@@ -86,35 +86,30 @@ class GatewayGraph {
   }
 }
 
-// GraphAdapter for gateway graph pathfinding
-class GatewayGraphAdapter implements GraphAdapter<number> {
+// FastAStarAdapter for gateway graph pathfinding
+class FastGatewayGraphAdapter implements FastAStarAdapter {
   constructor(private graph: GatewayGraph) {}
 
-  neighbors(node: number): number[] {
+  getNeighbors(node: number): number[] {
     const connections = this.graph.getConnections(node);
     return connections.map(conn => conn.to);
   }
 
-  cost(to: number, from?: number): number {
-    if (from === undefined) {
-      // Fallback for node-based cost (shouldn't be used in gateway graph)
-      return 1;
-    }
-
+  getCost(from: number, to: number): number {
     const connections = this.graph.getConnections(from);
     const connection = connections.find(conn => conn.to === to);
     return connection?.cost ?? 1;
   }
 
-  position(node: number): { x: number; y: number } {
-    const gateway = this.graph.getGateway(node);
-    if (!gateway) return { x: 0, y: 0 };
-    return { x: gateway.x, y: gateway.y };
-  }
+  heuristic(node: number, goal: number): number {
+    const nodeGw = this.graph.getGateway(node);
+    const goalGw = this.graph.getGateway(goal);
+    if (!nodeGw || !goalGw) return 0;
 
-  isTraversable(from: number, to: number): boolean {
-    const connections = this.graph.getConnections(from);
-    return connections.some(conn => conn.to === to);
+    // Manhattan distance heuristic
+    const dx = Math.abs(nodeGw.x - goalGw.x);
+    const dy = Math.abs(nodeGw.y - goalGw.y);
+    return dx + dy;
   }
 }
 
@@ -515,6 +510,7 @@ export class NavigationSatellite {
   private graph!: GatewayGraph;
   private initialized = false;
   private fastBFS!: FastBFS;
+  private fastAStar!: FastAStar;
 
   public debugInfo: DebugInfo | null = null;
   private debugTimeStart: number | null = null;
@@ -527,6 +523,11 @@ export class NavigationSatellite {
     this.graph = GatewayGraphBuilder.build(this.game, GatewayGraphBuilder.SECTOR_SIZE, debug);
     const miniMap = this.game.miniMap();
     this.fastBFS = new FastBFS(miniMap.width() * miniMap.height());
+
+    // Size FastAStar based on number of gateways
+    const maxGatewayId = Math.max(...this.graph.getAllGateways().map(gw => gw.id), 0);
+    this.fastAStar = new FastAStar(maxGatewayId + 1);
+
     this.initialized = true;
   }
 
@@ -697,17 +698,11 @@ export class NavigationSatellite {
   }
 
   private findGatewayPath(
-    fromGatewayId: number, 
+    fromGatewayId: number,
     toGatewayId: number
   ): number[] | null {
-    const adapter = new GatewayGraphAdapter(this.graph);
-    const aStar = new SerialAStar(fromGatewayId, toGatewayId, 10000, 1, adapter, 0)
-
-    if (aStar.compute() === PathFindResultType.Completed) {
-      return aStar.reconstructPath();
-    }
-
-    return null
+    const adapter = new FastGatewayGraphAdapter(this.graph);
+    return this.fastAStar.search(fromGatewayId, toGatewayId, adapter, 100000);
   }
 
   private findLocalPath(
