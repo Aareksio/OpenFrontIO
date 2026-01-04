@@ -1,8 +1,9 @@
 import { Game } from "../../src/core/game/Game";
 import { TileRef } from "../../src/core/game/GameMap";
-import { NavigationSatellite } from "../../src/core/pathfinding/experimental/NavigationSatelitte";
+import { NavigationSatellite } from "../../src/core/pathfinding/experimental/navigation-satellite/NavigationSatelitte";
 import { PathFinder } from "../../src/core/pathfinding/PathFinding";
 import { PathFindResultType } from "../../src/core/pathfinding/AStar";
+import { boatPathFromTileToShore, boatPathFromTileToWater } from '../../src/core/pathfinding/experimental/vimacs/TransportShipUtils';
 
 /**
  * Common interface for pathfinding implementations.
@@ -80,6 +81,50 @@ export class NavigationSatelliteAdapter implements PathfindingInterface {
   findPath(from: TileRef, to: TileRef): TileRef[] | null {
     try {
       return this.satellite.findPath(from, to);
+    } catch (e) {
+      return null;
+    }
+  }
+}
+
+export class VimacsTileToShoreAdapter implements PathfindingInterface {
+  readonly name = "Vimacs.TileToShore";
+  private readonly game: Game;
+
+  constructor(game: Game) {
+    this.game = game;
+  }
+
+  initialize(): void {
+    // No initialization needed
+  }
+
+  findPath(from: TileRef, to: TileRef): TileRef[] | null {
+    try {
+      const gm = this.game.map();
+      return boatPathFromTileToShore(gm, from, to);
+    } catch (e) {
+      return null;
+    }
+  }
+}
+
+export class VimacsTileToWaterAdapter implements PathfindingInterface {
+  readonly name = "Vimacs.TileToWater";
+  private readonly game: Game;
+
+  constructor(game: Game) {
+    this.game = game;
+  }
+
+  initialize(): void {
+    // No initialization needed
+  }
+
+  findPath(from: TileRef, to: TileRef): TileRef[] | null {
+    try {
+      const gm = this.game.map();
+      return boatPathFromTileToWater(gm, from, to);
     } catch (e) {
       return null;
     }
