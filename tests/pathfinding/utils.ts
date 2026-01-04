@@ -1,6 +1,6 @@
 import { Game } from '../../src/core/game/Game';
 import { TileRef } from '../../src/core/game/GameMap';
-import { PathFinderMiniAdapter, PathfindingInterface, NavigationSatelliteAdapter } from './pathfinding-interface';
+import { PathFinderMiniAdapter, PathfindingInterface, NavigationSatelliteAdapter, VimacsTileToShoreAdapter, VimacsTileToWaterAdapter } from './pathfinding-interface';
 
 export const DEFAULT_ITERATIONS = 100
 
@@ -34,8 +34,12 @@ export function getAdapter(
   switch (name) {
     case "PF.Mini":
       return new PathFinderMiniAdapter(game);
-    case "TSNav":
+    case "SatNav":
       return new NavigationSatelliteAdapter(game);
+    case "Vimacs.TileToShore":
+      return new VimacsTileToShoreAdapter(game);
+    case "Vimacs.TileToWater":
+      return new VimacsTileToWaterAdapter(game);
     default:
       throw new Error(`Unknown pathfinding adapter: ${name}`);
   }
