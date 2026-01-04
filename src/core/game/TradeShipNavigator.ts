@@ -145,7 +145,7 @@ class GatewayGraphAdapter implements GraphAdapter<number> {
 }
 
 class GatewayGraphBuilder {
-  private static readonly SECTOR_SIZE = 64;
+  private static readonly SECTOR_SIZE = 32;
 
   static build(game: Game, sectorSize: number = GatewayGraphBuilder.SECTOR_SIZE): GatewayGraph {
     const startTime = performance.now();
@@ -760,7 +760,7 @@ export class TradeShipNavigator {
       let farthest = current + 1;
       let bestTrace: TileRef[] | null = null;
 
-      for (let i = current + 2; i < path.length; i += 50) {
+      for (let i = current + 2; i < path.length; i += Math.max(1, Math.floor((path.length / 20)))) {
         const trace = this.tracePath(path[current], path[i]);
 
         if (trace !== null) {
