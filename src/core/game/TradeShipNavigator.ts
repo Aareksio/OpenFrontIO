@@ -1,5 +1,5 @@
 import { Game, Cell } from 'src/core/game/Game';
-import { TileRef } from 'src/core/game/GameMap';
+import { GameMap, TileRef } from 'src/core/game/GameMap';
 import { SerialAStar, GraphAdapter } from 'src/core/pathfinding/SerialAStar';
 import { GameMapAdapter } from 'src/core/pathfinding/MiniAStar';
 import { PathFindResultType } from 'src/core/pathfinding/AStar';
@@ -31,33 +31,73 @@ interface Sector {
   connections: GatewayConnection[];
 }
 
-// GraphAdapter for gateway graph pathfinding
-class GatewayGraphAdapter implements GraphAdapter<number> {
+// ============================================================================
+// GatewayGraph - Immutable graph data structure
+// ============================================================================
+
+class GatewayGraph {
   constructor(
-    private gateways: Map<number, Gateway>,
-    private gatewayConnections: Map<number, GatewayConnection[]>,
-    private game: Game
+    readonly sectors: ReadonlyMap<string, Sector>,
+    readonly gateways: ReadonlyMap<number, Gateway>,
+    readonly connections: ReadonlyMap<number, GatewayConnection[]>,
+    readonly sectorSize: number,
   ) {}
 
+  getSectorKey(sectorX: number, sectorY: number): string {
+    return `${sectorX},${sectorY}`;
+  }
+
+  getSector(sectorX: number, sectorY: number): Sector | undefined {
+    return this.sectors.get(this.getSectorKey(sectorX, sectorY));
+  }
+
+  getGateway(id: number): Gateway | undefined {
+    return this.gateways.get(id);
+  }
+
+  getConnections(gatewayId: number): GatewayConnection[] {
+    return this.connections.get(gatewayId) ?? [];
+  }
+
+  getNearbySectorGateways(sectorX: number, sectorY: number): Gateway[] {
+    const nearby: Gateway[] = [];
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const sector = this.getSector(sectorX + dx, sectorY + dy);
+        if (sector) {
+          nearby.push(...sector.gateways);
+        }
+      }
+    }
+    return nearby;
+  }
+
+  getAllGateways(): Gateway[] {
+    return Array.from(this.gateways.values());
+  }
+}
+
+// GraphAdapter for gateway graph pathfinding
+class GatewayGraphAdapter implements GraphAdapter<number> {
+  constructor(private graph: GatewayGraph) {}
+
   neighbors(node: number): number[] {
-    const connections = this.gatewayConnections.get(node);
-    if (!connections) return [];
+    const connections = this.graph.getConnections(node);
     return connections.map(conn => conn.to);
   }
 
-  cost(node: number): number {
+  cost(_node: number): number {
     return 1; // Base cost, actual cost is in the connection
   }
 
   position(node: number): { x: number; y: number } {
-    const gateway = this.gateways.get(node);
+    const gateway = this.graph.getGateway(node);
     if (!gateway) return { x: 0, y: 0 };
     return { x: gateway.x, y: gateway.y };
   }
 
   isTraversable(from: number, to: number): boolean {
-    const connections = this.gatewayConnections.get(from);
-    if (!connections) return false;
+    const connections = this.graph.getConnections(from);
     return connections.some(conn => conn.to === to);
   }
 }
@@ -126,15 +166,348 @@ function findCell(cells: Cell[], target: Cell): number {
   return -1;
 }
 
-// Do one thing, do it well class for
-// navigating trade ships across the map
-export class TradeShipNavigator {
+// ============================================================================
+// GatewayGraphBuilder - Builds gateway graphs from game maps
+// ============================================================================
+
+class GatewayGraphBuilder {
   private static readonly SECTOR_SIZE = 64;
 
-  private sectors: Map<string, Sector> = new Map();
-  private gateways: Map<number, Gateway> = new Map();
-  private gatewayConnections: Map<number, GatewayConnection[]> = new Map();
-  private nextGatewayId = 0;
+  static build(game: Game, sectorSize: number = GatewayGraphBuilder.SECTOR_SIZE): GatewayGraph {
+    const startTime = performance.now();
+
+    const sectors = new Map<string, Sector>();
+    const gateways = new Map<number, Gateway>();
+    const gatewayConnections = new Map<number, GatewayConnection[]>();
+    let nextGatewayId = 0;
+
+    // Build the gateway graph
+    const width = game.width();
+    const height = game.height();
+    const sectorsX = Math.ceil(width / sectorSize);
+    const sectorsY = Math.ceil(height / sectorSize);
+
+    // Phase 1: Identify all gateways
+    for (let sy = 0; sy < sectorsY; sy++) {
+      for (let sx = 0; sx < sectorsX; sx++) {
+        GatewayGraphBuilder.processSector(
+          sx, sy, sectorsX, sectorsY,
+          game, sectorSize, sectors, gateways, nextGatewayId
+        );
+        // Update nextGatewayId based on gateways created
+        nextGatewayId = gateways.size > 0 ? Math.max(...gateways.keys()) + 1 : 0;
+      }
+    }
+
+    // Phase 2: Build intra-sector connections
+    for (const sector of sectors.values()) {
+      GatewayGraphBuilder.buildSectorConnections(
+        sector, game, sectorSize, gatewayConnections
+      );
+    }
+
+    const endTime = performance.now();
+    console.log(`Gateway graph built in ${(endTime - startTime).toFixed(2)}ms`);
+    console.log(`Total gateways: ${gateways.size}`);
+    console.log(`Total sectors: ${sectors.size}`);
+
+    return new GatewayGraph(sectors, gateways, gatewayConnections, sectorSize);
+  }
+
+  private static getSectorKey(sectorX: number, sectorY: number): string {
+    return `${sectorX},${sectorY}`;
+  }
+
+  private static processSector(
+    sx: number, sy: number, sectorsX: number, sectorsY: number,
+    game: Game, sectorSize: number,
+    sectors: Map<string, Sector>,
+    gateways: Map<number, Gateway>,
+    nextGatewayId: number
+  ): void {
+    const sectorKey = GatewayGraphBuilder.getSectorKey(sx, sy);
+    let sector = sectors.get(sectorKey);
+    if (!sector) {
+      sector = { x: sx, y: sy, gateways: [], connections: [] };
+      sectors.set(sectorKey, sector);
+    }
+
+    const baseX = sx * sectorSize;
+    const baseY = sy * sectorSize;
+    const width = game.width();
+    const height = game.height();
+
+    // Find gateways on right edge (if not the last column)
+    if (sx < sectorsX - 1) {
+      const edgeX = Math.min(baseX + sectorSize - 1, width - 1);
+      const newGateways = GatewayGraphBuilder.findGatewaysOnVerticalEdge(
+        edgeX, baseY, sy, sectorsY, game, sectorSize, nextGatewayId
+      );
+      sector.gateways.push(...newGateways);
+
+      // Register gateways
+      for (const gateway of newGateways) {
+        gateways.set(gateway.id, gateway);
+      }
+
+      // Also add these gateways to the adjacent sector on the right
+      const rightSectorKey = GatewayGraphBuilder.getSectorKey(sx + 1, sy);
+      let rightSector = sectors.get(rightSectorKey);
+      if (!rightSector) {
+        rightSector = { x: sx + 1, y: sy, gateways: [], connections: [] };
+        sectors.set(rightSectorKey, rightSector);
+      }
+      rightSector.gateways.push(...newGateways);
+    }
+
+    // Find gateways on bottom edge (if not the last row)
+    if (sy < sectorsY - 1) {
+      const edgeY = Math.min(baseY + sectorSize - 1, height - 1);
+      const newGateways = GatewayGraphBuilder.findGatewaysOnHorizontalEdge(
+        edgeY, baseX, sx, sectorsX, game, sectorSize,
+        gateways.size > 0 ? Math.max(...gateways.keys()) + 1 : nextGatewayId
+      );
+      sector.gateways.push(...newGateways);
+
+      // Register gateways
+      for (const gateway of newGateways) {
+        gateways.set(gateway.id, gateway);
+      }
+
+      // Also add these gateways to the adjacent sector below
+      const bottomSectorKey = GatewayGraphBuilder.getSectorKey(sx, sy + 1);
+      let bottomSector = sectors.get(bottomSectorKey);
+      if (!bottomSector) {
+        bottomSector = { x: sx, y: sy + 1, gateways: [], connections: [] };
+        sectors.set(bottomSectorKey, bottomSector);
+      }
+      bottomSector.gateways.push(...newGateways);
+    }
+  }
+
+  private static findGatewaysOnVerticalEdge(
+    x: number, baseY: number, sectorY: number, _sectorsY: number,
+    game: Game, sectorSize: number, startId: number
+  ): Gateway[] {
+    const gateways: Gateway[] = [];
+    const height = game.height();
+    const maxY = Math.min(baseY + sectorSize, height);
+    let gatewayStart = -1;
+    let currentId = startId;
+
+    for (let y = baseY; y < maxY; y++) {
+      const tile = game.ref(x, y);
+      const nextTile = x + 1 < game.width() ? game.ref(x + 1, y) : -1;
+      const isGateway = game.isWater(tile) && nextTile !== -1 && game.isWater(nextTile);
+
+      if (isGateway) {
+        if (gatewayStart === -1) {
+          gatewayStart = y;
+        }
+      } else {
+        if (gatewayStart !== -1) {
+          const gatewayLength = y - gatewayStart;
+          const midY = gatewayStart + Math.floor(gatewayLength / 2);
+          gateways.push({
+            id: currentId++,
+            sectorX: Math.floor(x / sectorSize),
+            sectorY: sectorY,
+            edge: 'right',
+            x: x,
+            y: midY,
+            length: gatewayLength,
+            tile: game.ref(x, midY)
+          });
+          gatewayStart = -1;
+        }
+      }
+    }
+
+    if (gatewayStart !== -1) {
+      const gatewayLength = maxY - gatewayStart;
+      const midY = gatewayStart + Math.floor(gatewayLength / 2);
+      gateways.push({
+        id: currentId++,
+        sectorX: Math.floor(x / sectorSize),
+        sectorY: sectorY,
+        edge: 'right',
+        x: x,
+        y: midY,
+        length: gatewayLength,
+        tile: game.ref(x, midY)
+      });
+    }
+
+    return gateways;
+  }
+
+  private static findGatewaysOnHorizontalEdge(
+    y: number, baseX: number, sectorX: number, _sectorsX: number,
+    game: Game, sectorSize: number, startId: number
+  ): Gateway[] {
+    const gateways: Gateway[] = [];
+    const width = game.width();
+    const maxX = Math.min(baseX + sectorSize, width);
+    let gatewayStart = -1;
+    let currentId = startId;
+
+    for (let x = baseX; x < maxX; x++) {
+      const tile = game.ref(x, y);
+      const nextTile = y + 1 < game.height() ? game.ref(x, y + 1) : -1;
+      const isGateway = game.isWater(tile) && nextTile !== -1 && game.isWater(nextTile);
+
+      if (isGateway) {
+        if (gatewayStart === -1) {
+          gatewayStart = x;
+        }
+      } else {
+        if (gatewayStart !== -1) {
+          const gatewayLength = x - gatewayStart;
+          const midX = gatewayStart + Math.floor(gatewayLength / 2);
+          gateways.push({
+            id: currentId++,
+            sectorX: sectorX,
+            sectorY: Math.floor(y / sectorSize),
+            edge: 'bottom',
+            x: midX,
+            y: y,
+            length: gatewayLength,
+            tile: game.ref(midX, y)
+          });
+          gatewayStart = -1;
+        }
+      }
+    }
+
+    if (gatewayStart !== -1) {
+      const gatewayLength = maxX - gatewayStart;
+      const midX = gatewayStart + Math.floor(gatewayLength / 2);
+      gateways.push({
+        id: currentId++,
+        sectorX: sectorX,
+        sectorY: Math.floor(y / sectorSize),
+        edge: 'bottom',
+        x: midX,
+        y: y,
+        length: gatewayLength,
+        tile: game.ref(midX, y)
+      });
+    }
+
+    return gateways;
+  }
+
+  private static buildSectorConnections(
+    sector: Sector,
+    game: Game,
+    sectorSize: number,
+    gatewayConnections: Map<number, GatewayConnection[]>
+  ): void {
+    const gateways = sector.gateways;
+
+    for (let i = 0; i < gateways.length; i++) {
+      for (let j = i + 1; j < gateways.length; j++) {
+        const cost = GatewayGraphBuilder.findLocalPathCost(
+          gateways[i].tile, gateways[j].tile, game, sectorSize
+        );
+
+        if (cost !== -1) {
+          const connection1: GatewayConnection = {
+            from: gateways[i].id,
+            to: gateways[j].id,
+            cost: cost
+          };
+          const connection2: GatewayConnection = {
+            from: gateways[j].id,
+            to: gateways[i].id,
+            cost: cost
+          };
+
+          sector.connections.push(connection1, connection2);
+
+          if (!gatewayConnections.has(gateways[i].id)) {
+            gatewayConnections.set(gateways[i].id, []);
+          }
+          if (!gatewayConnections.has(gateways[j].id)) {
+            gatewayConnections.set(gateways[j].id, []);
+          }
+
+          gatewayConnections.get(gateways[i].id)!.push(connection1);
+          gatewayConnections.get(gateways[j].id)!.push(connection2);
+        }
+      }
+    }
+  }
+
+  private static findLocalPathCost(
+    from: TileRef, to: TileRef, game: Game, sectorSize: number
+  ): number {
+    const miniMap = game.miniMap();
+    const miniFrom = miniMap.ref(
+      Math.floor(game.x(from) / 2),
+      Math.floor(game.y(from) / 2)
+    );
+    const miniTo = miniMap.ref(
+      Math.floor(game.x(to) / 2),
+      Math.floor(game.y(to) / 2)
+    );
+
+    const maxDistance = sectorSize * 3;
+
+    const result = GatewayGraphBuilder.bfsSearch(
+      miniMap, miniFrom, maxDistance,
+      (tile, dist) => {
+        if (tile === miniTo) {
+          return dist * 2;
+        }
+        return null;
+      }
+    );
+
+    return result ?? -1;
+  }
+
+  private static bfsSearch<T>(
+    map: GameMap,
+    start: TileRef,
+    maxDistance: number,
+    visitor: (tile: TileRef, dist: number) => T | null,
+  ): T | null {
+    const visited = new Set<TileRef>();
+    const queue: { tile: TileRef; dist: number }[] = [{ tile: start, dist: 0 }];
+    visited.add(start);
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+
+      if (current.dist > maxDistance) {
+        continue;
+      }
+
+      const result = visitor(current.tile, current.dist);
+      if (result !== null) {
+        return result;
+      }
+
+      const neighbors = map.neighbors(current.tile);
+      for (const neighbor of neighbors) {
+        if (!visited.has(neighbor) && map.isWater(neighbor)) {
+          visited.add(neighbor);
+          queue.push({ tile: neighbor, dist: current.dist + 1 });
+        }
+      }
+    }
+
+    return null;
+  }
+}
+
+// ============================================================================
+// TradeShipNavigator - Uses gateway graph for pathfinding
+// ============================================================================
+
+export class TradeShipNavigator {
+  private graph!: GatewayGraph;
   private initialized = false;
 
   constructor(
@@ -142,230 +515,8 @@ export class TradeShipNavigator {
   ) {}
 
   initialize() {
-    if (this.initialized) return;
-
-    const startTime = performance.now();
-
-    this.buildGatewayGraph();
-
-    const endTime = performance.now();
+    this.graph = GatewayGraphBuilder.build(this.game);
     this.initialized = true;
-
-    console.log(`Gateway graph built in ${(endTime - startTime).toFixed(2)}ms`);
-    console.log(`Total gateways: ${this.gateways.size}`);
-    console.log(`Total sectors: ${this.sectors.size}`);
-  }
-
-  private getSectorKey(sectorX: number, sectorY: number): string {
-    return `${sectorX},${sectorY}`;
-  }
-
-  private buildGatewayGraph() {
-    const width = this.game.width();
-    const height = this.game.height();
-    const sectorsX = Math.ceil(width / TradeShipNavigator.SECTOR_SIZE);
-    const sectorsY = Math.ceil(height / TradeShipNavigator.SECTOR_SIZE);
-
-    // Phase 1: Identify all gateways
-    for (let sy = 0; sy < sectorsY; sy++) {
-      for (let sx = 0; sx < sectorsX; sx++) {
-        this.processSector(sx, sy, sectorsX, sectorsY);
-      }
-    }
-
-    // Phase 2: Build intra-sector connections
-    // Since gateways are now shared between adjacent sectors,
-    // this automatically creates cross-sector connections!
-    for (const sector of this.sectors.values()) {
-      this.buildSectorConnections(sector);
-    }
-  }
-
-  private processSector(sx: number, sy: number, sectorsX: number, sectorsY: number) {
-    const sectorKey = this.getSectorKey(sx, sy);
-    // Get existing sector or create new one
-    let sector = this.sectors.get(sectorKey);
-    if (!sector) {
-      sector = {
-        x: sx,
-        y: sy,
-        gateways: [],
-        connections: []
-      };
-      this.sectors.set(sectorKey, sector);
-    }
-
-    const baseX = sx * TradeShipNavigator.SECTOR_SIZE;
-    const baseY = sy * TradeShipNavigator.SECTOR_SIZE;
-    const width = this.game.width();
-    const height = this.game.height();
-
-    // Find gateways on right edge (if not the last column)
-    if (sx < sectorsX - 1) {
-      const edgeX = Math.min(baseX + TradeShipNavigator.SECTOR_SIZE - 1, width - 1);
-      const gateways = this.findGatewaysOnVerticalEdge(edgeX, baseY, sy, sectorsY);
-      sector.gateways.push(...gateways);
-
-      // Also add these gateways to the adjacent sector on the right
-      const rightSectorKey = this.getSectorKey(sx + 1, sy);
-      let rightSector = this.sectors.get(rightSectorKey);
-      if (!rightSector) {
-        rightSector = { x: sx + 1, y: sy, gateways: [], connections: [] };
-        this.sectors.set(rightSectorKey, rightSector);
-      }
-      rightSector.gateways.push(...gateways);
-    }
-
-    // Find gateways on bottom edge (if not the last row)
-    if (sy < sectorsY - 1) {
-      const edgeY = Math.min(baseY + TradeShipNavigator.SECTOR_SIZE - 1, height - 1);
-      const gateways = this.findGatewaysOnHorizontalEdge(edgeY, baseX, sx, sectorsX);
-      sector.gateways.push(...gateways);
-
-      // Also add these gateways to the adjacent sector below
-      const bottomSectorKey = this.getSectorKey(sx, sy + 1);
-      let bottomSector = this.sectors.get(bottomSectorKey);
-      if (!bottomSector) {
-        bottomSector = { x: sx, y: sy + 1, gateways: [], connections: [] };
-        this.sectors.set(bottomSectorKey, bottomSector);
-      }
-      bottomSector.gateways.push(...gateways);
-    }
-
-    // Register all gateways (sector already in map from earlier)
-    for (const gateway of sector.gateways) {
-      if (!this.gateways.has(gateway.id)) {
-        this.gateways.set(gateway.id, gateway);
-      }
-    }
-  }
-
-  private findGatewaysOnVerticalEdge(
-    x: number,
-    baseY: number,
-    sectorY: number,
-    _sectorsY: number
-  ): Gateway[] {
-    const gateways: Gateway[] = [];
-    const height = this.game.height();
-    const maxY = Math.min(baseY + TradeShipNavigator.SECTOR_SIZE, height);
-
-    let gatewayStart = -1;
-
-    for (let y = baseY; y < maxY; y++) {
-      const tile = this.game.ref(x, y);
-      const nextTile = x + 1 < this.game.width() ? this.game.ref(x + 1, y) : -1;
-
-      // Check if both current and next tile are water (gateway condition)
-      const isGateway = this.game.isWater(tile) &&
-                       nextTile !== -1 &&
-                       this.game.isWater(nextTile);
-
-      if (isGateway) {
-        if (gatewayStart === -1) {
-          gatewayStart = y;
-        }
-      } else {
-        // End of gateway stretch
-        if (gatewayStart !== -1) {
-          const gatewayLength = y - gatewayStart;
-          const midY = gatewayStart + Math.floor(gatewayLength / 2);
-          gateways.push({
-            id: this.nextGatewayId++,
-            sectorX: Math.floor(x / TradeShipNavigator.SECTOR_SIZE),
-            sectorY: sectorY,
-            edge: 'right',
-            x: x,
-            y: midY,
-            length: gatewayLength,
-            tile: this.game.ref(x, midY)
-          });
-          gatewayStart = -1;
-        }
-      }
-    }
-
-    // Handle gateway extending to edge
-    if (gatewayStart !== -1) {
-      const gatewayLength = maxY - gatewayStart;
-      const midY = gatewayStart + Math.floor(gatewayLength / 2);
-      gateways.push({
-        id: this.nextGatewayId++,
-        sectorX: Math.floor(x / TradeShipNavigator.SECTOR_SIZE),
-        sectorY: sectorY,
-        edge: 'right',
-        x: x,
-        y: midY,
-        length: gatewayLength,
-        tile: this.game.ref(x, midY)
-      });
-    }
-
-    return gateways;
-  }
-
-  private findGatewaysOnHorizontalEdge(
-    y: number,
-    baseX: number,
-    sectorX: number,
-    _sectorsX: number
-  ): Gateway[] {
-    const gateways: Gateway[] = [];
-    const width = this.game.width();
-    const maxX = Math.min(baseX + TradeShipNavigator.SECTOR_SIZE, width);
-
-    let gatewayStart = -1;
-
-    for (let x = baseX; x < maxX; x++) {
-      const tile = this.game.ref(x, y);
-      const nextTile = y + 1 < this.game.height() ? this.game.ref(x, y + 1) : -1;
-
-      // Check if both current and next tile are water (gateway condition)
-      const isGateway = this.game.isWater(tile) &&
-                       nextTile !== -1 &&
-                       this.game.isWater(nextTile);
-
-      if (isGateway) {
-        if (gatewayStart === -1) {
-          gatewayStart = x;
-        }
-      } else {
-        // End of gateway stretch
-        if (gatewayStart !== -1) {
-          const gatewayLength = x - gatewayStart;
-          const midX = gatewayStart + Math.floor(gatewayLength / 2);
-          gateways.push({
-            id: this.nextGatewayId++,
-            sectorX: sectorX,
-            sectorY: Math.floor(y / TradeShipNavigator.SECTOR_SIZE),
-            edge: 'bottom',
-            x: midX,
-            y: y,
-            length: gatewayLength,
-            tile: this.game.ref(midX, y)
-          });
-          gatewayStart = -1;
-        }
-      }
-    }
-
-    // Handle gateway extending to edge
-    if (gatewayStart !== -1) {
-      const gatewayLength = maxX - gatewayStart;
-      const midX = gatewayStart + Math.floor(gatewayLength / 2);
-      gateways.push({
-        id: this.nextGatewayId++,
-        sectorX: sectorX,
-        sectorY: Math.floor(y / TradeShipNavigator.SECTOR_SIZE),
-        edge: 'bottom',
-        x: midX,
-        y: y,
-        length: gatewayLength,
-        tile: this.game.ref(midX, y)
-      });
-    }
-
-    return gateways;
   }
 
   // Generic BFS search on a map with distance limit and visitor pattern
@@ -406,100 +557,19 @@ export class TradeShipNavigator {
     return null;
   }
 
-  private buildSectorConnections(sector: Sector) {
-    // Check connectivity between all pairs of gateways in this sector
-    const gateways = sector.gateways;
-
-    for (let i = 0; i < gateways.length; i++) {
-      for (let j = i + 1; j < gateways.length; j++) {
-        const cost = this.findLocalPathCost(gateways[i].tile, gateways[j].tile);
-
-        if (cost !== -1) {
-          // Bidirectional connection
-          const connection1: GatewayConnection = {
-            from: gateways[i].id,
-            to: gateways[j].id,
-            cost: cost
-          };
-          const connection2: GatewayConnection = {
-            from: gateways[j].id,
-            to: gateways[i].id,
-            cost: cost
-          };
-
-          sector.connections.push(connection1, connection2);
-
-          // Add to global connection map
-          if (!this.gatewayConnections.has(gateways[i].id)) {
-            this.gatewayConnections.set(gateways[i].id, []);
-          }
-          if (!this.gatewayConnections.has(gateways[j].id)) {
-            this.gatewayConnections.set(gateways[j].id, []);
-          }
-
-          this.gatewayConnections.get(gateways[i].id)!.push(connection1);
-          this.gatewayConnections.get(gateways[j].id)!.push(connection2);
-        }
-      }
-    }
-  }
-
-  private findLocalPathCost(from: TileRef, to: TileRef): number {
-    // Use minimap for faster connectivity checking
-    const miniMap = this.game.miniMap();
-
-    const miniFrom = miniMap.ref(
-      Math.floor(this.game.x(from) / 2),
-      Math.floor(this.game.y(from) / 2)
-    );
-    const miniTo = miniMap.ref(
-      Math.floor(this.game.x(to) / 2),
-      Math.floor(this.game.y(to) / 2)
-    );
-
-    // Use BFS on minimap with distance limit
-    // Increased from SECTOR_SIZE to SECTOR_SIZE * 3 to allow cross-sector connections
-    const maxDistance = TradeShipNavigator.SECTOR_SIZE * 3;
-
-    const result = this.bfsSearch(miniMap, miniFrom, maxDistance, (tile, dist) => {
-      if (tile === miniTo) {
-        // Return cost scaled by 2 (approximate full-resolution distance)
-        return dist * 2;
-      }
-      return null;
-    });
-
-    return result ?? -1; // Not connected
-  }
-
   // Find nearest gateway to a given tile
   private findNearestGateway(tile: TileRef): Gateway | null {
     const x = this.game.x(tile);
     const y = this.game.y(tile);
 
     // Check gateways in nearby sectors (current and adjacent)
-    const sectorX = Math.floor(x / TradeShipNavigator.SECTOR_SIZE);
-    const sectorY = Math.floor(y / TradeShipNavigator.SECTOR_SIZE);
+    const sectorX = Math.floor(x / this.graph.sectorSize);
+    const sectorY = Math.floor(y / this.graph.sectorSize);
 
     // Collect all candidate gateways from nearby sectors
-    const candidateGateways = new Set<Gateway>();
+    const candidateGateways = this.graph.getNearbySectorGateways(sectorX, sectorY);
 
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const sx = sectorX + dx;
-        const sy = sectorY + dy;
-        const sectorKey = this.getSectorKey(sx, sy);
-        const sector = this.sectors.get(sectorKey);
-
-        if (sector) {
-          for (const gateway of sector.gateways) {
-            candidateGateways.add(gateway);
-          }
-        }
-      }
-    }
-
-    if (candidateGateways.size === 0) {
+    if (candidateGateways.length === 0) {
       return null;
     }
 
@@ -511,7 +581,7 @@ export class TradeShipNavigator {
       Math.floor(y / 2)
     );
 
-    const maxDistance = TradeShipNavigator.SECTOR_SIZE * 3;
+    const maxDistance = this.graph.sectorSize * 3;
 
     return this.bfsSearch(miniMap, miniFrom, maxDistance, (tile, _dist) => {
       // Check if any candidate gateway is at this position
@@ -535,11 +605,7 @@ export class TradeShipNavigator {
 
   // A* search on gateway graph using SerialAStar
   private findGatewayPath(fromGatewayId: number, toGatewayId: number): number[] | null {
-    const adapter = new GatewayGraphAdapter(
-      this.gateways,
-      this.gatewayConnections,
-      this.game
-    );
+    const adapter = new GatewayGraphAdapter(this.graph);
 
     const aStar = new SerialAStar(
       fromGatewayId,
@@ -637,7 +703,7 @@ export class TradeShipNavigator {
             initialPath: null,
             smoothedPath: null,
             allGateways: this.getAllGatewaysDebugInfo(),
-            sectorSize: TradeShipNavigator.SECTOR_SIZE,
+            sectorSize: this.graph.sectorSize,
           };
         }
         return localPath;
@@ -669,7 +735,7 @@ export class TradeShipNavigator {
           initialPath: null,
           smoothedPath: null,
           allGateways: this.getAllGatewaysDebugInfo(),
-          sectorSize: TradeShipNavigator.SECTOR_SIZE,
+          sectorSize: this.graph.sectorSize,
         };
       }
       return this.findDetailedLocalPath(from, to);
@@ -686,7 +752,7 @@ export class TradeShipNavigator {
     // Convert gateway IDs to waypoint tiles, including start and end positions
     const gatewayWaypoints: TileRef[] = [
       from,
-      ...gatewayPath.map(gwId => this.gateways.get(gwId)!.tile),
+      ...gatewayPath.map(gwId => this.graph.getGateway(gwId)!.tile),
       to
     ];
 
@@ -730,7 +796,7 @@ export class TradeShipNavigator {
         initialPath: [...initialPath],
         smoothedPath: [...smoothedPath],
         allGateways: this.getAllGatewaysDebugInfo(),
-        sectorSize: TradeShipNavigator.SECTOR_SIZE,
+        sectorSize: this.graph.sectorSize,
       };
     }
 
@@ -738,7 +804,7 @@ export class TradeShipNavigator {
   }
 
   private getAllGatewaysDebugInfo(): Array<{ x: number; y: number; edge: 'right' | 'bottom'; length: number }> {
-    return Array.from(this.gateways.values()).map(gw => ({
+    return this.graph.getAllGateways().map(gw => ({
       x: gw.x,
       y: gw.y,
       edge: gw.edge,
