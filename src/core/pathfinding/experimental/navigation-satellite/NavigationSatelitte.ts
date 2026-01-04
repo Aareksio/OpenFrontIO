@@ -46,14 +46,15 @@ interface DebugInfo {
 
 class GatewayGraph {
   constructor(
-    readonly sectors: ReadonlyMap<string, Sector>,
+    readonly sectors: ReadonlyMap<number, Sector>,
     readonly gateways: ReadonlyMap<number, Gateway>,
     readonly connections: ReadonlyMap<number, GatewayConnection[]>,
     readonly sectorSize: number,
+    readonly sectorsX: number,
   ) {}
 
-  getSectorKey(sectorX: number, sectorY: number): string {
-    return `${sectorX},${sectorY}`;
+  getSectorKey(sectorX: number, sectorY: number): number {
+    return sectorY * this.sectorsX + sectorX;
   }
 
   getSector(sectorX: number, sectorY: number): Sector | undefined {
@@ -123,7 +124,7 @@ class GatewayGraphBuilder {
   ): GatewayGraph {
     const startTime = performance.now();
 
-    const sectors = new Map<string, Sector>();
+    const sectors = new Map<number, Sector>();
     const gateways = new Map<number, Gateway>();
     const gatewayConnections = new Map<number, GatewayConnection[]>();
 
@@ -213,23 +214,23 @@ class GatewayGraphBuilder {
       console.log(`Total sectors: ${sectors.size}`);
     }
 
-    return new GatewayGraph(sectors, gateways, gatewayConnections, sectorSize);
+    return new GatewayGraph(sectors, gateways, gatewayConnections, sectorSize, sectorsX);
   }
 
-  private static getSectorKey(sectorX: number, sectorY: number): string {
-    return `${sectorX},${sectorY}`;
+  private static getSectorKey(sectorX: number, sectorY: number, sectorsX: number): number {
+    return sectorY * sectorsX + sectorX;
   }
 
   private static processSector(
     sx: number, sy: number,
     sectorsX: number, sectorsY: number,
     sectorSize: number,
-    sectors: Map<string, Sector>,
+    sectors: Map<number, Sector>,
     gateways: Map<number, Gateway>,
     nextGatewayId: number,
     miniMap: GameMap
   ): void {
-    const sectorKey = GatewayGraphBuilder.getSectorKey(sx, sy);
+    const sectorKey = GatewayGraphBuilder.getSectorKey(sx, sy, sectorsX);
     let sector = sectors.get(sectorKey);
     if (!sector) {
       sector = { x: sx, y: sy, gateways: [], connections: [] };
@@ -257,7 +258,7 @@ class GatewayGraphBuilder {
       }
 
       // Also add these gateways to the adjacent sector on the right
-      const rightSectorKey = GatewayGraphBuilder.getSectorKey(sx + 1, sy);
+      const rightSectorKey = GatewayGraphBuilder.getSectorKey(sx + 1, sy, sectorsX);
       let rightSector = sectors.get(rightSectorKey);
 
       if (!rightSector) {
@@ -285,7 +286,7 @@ class GatewayGraphBuilder {
       }
 
       // Also add these gateways to the adjacent sector below
-      const bottomSectorKey = GatewayGraphBuilder.getSectorKey(sx, sy + 1);
+      const bottomSectorKey = GatewayGraphBuilder.getSectorKey(sx, sy + 1, sectorsX);
       let bottomSector = sectors.get(bottomSectorKey);
 
       if (!bottomSector) {
