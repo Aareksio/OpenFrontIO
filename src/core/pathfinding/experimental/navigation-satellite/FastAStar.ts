@@ -1,4 +1,4 @@
-// Optimized A* using stamp-based visited tracking and typed arrays
+// A* optimized for performance for small to medium graphs.
 // Works with node IDs represented as integers (0 to numNodes-1)
 
 export interface FastAStarAdapter {
@@ -33,6 +33,7 @@ class MinHeap {
       if (this.scores[this.heap[parent]] <= this.scores[this.heap[i]]) {
         break;
       }
+
       // Swap
       const tmp = this.heap[parent];
       this.heap[parent] = this.heap[i];
@@ -55,6 +56,7 @@ class MinHeap {
       if (left < this.size && this.scores[this.heap[left]] < this.scores[this.heap[smallest]]) {
         smallest = left;
       }
+
       if (right < this.size && this.scores[this.heap[right]] < this.scores[this.heap[smallest]]) {
         smallest = right;
       }
@@ -84,14 +86,16 @@ class MinHeap {
 
 export class FastAStar {
   private stamp = 1;
-  private readonly visitedStamp: Uint32Array;
+  private readonly closedStamp: Uint32Array;  // Tracks fully processed nodes
+  private readonly gScoreStamp: Uint32Array;  // Tracks valid gScores
   private readonly gScore: Float32Array;
   private readonly fScore: Float32Array;
   private readonly cameFrom: Int32Array;
   private readonly openHeap: MinHeap;
 
   constructor(numNodes: number) {
-    this.visitedStamp = new Uint32Array(numNodes);
+    this.closedStamp = new Uint32Array(numNodes);
+    this.gScoreStamp = new Uint32Array(numNodes);
     this.gScore = new Float32Array(numNodes);
     this.fScore = new Float32Array(numNodes);
     this.cameFrom = new Int32Array(numNodes);
@@ -100,11 +104,14 @@ export class FastAStar {
 
   private nextStamp(): number {
     const stamp = this.stamp++;
+
     if (this.stamp === 0) {
       // Overflow - reset (extremely rare)
-      this.visitedStamp.fill(0);
+      this.closedStamp.fill(0);
+      this.gScoreStamp.fill(0);
       this.stamp = 1;
     }
+
     return stamp;
   }
 
@@ -118,10 +125,10 @@ export class FastAStar {
 
     this.openHeap.clear();
     this.gScore[start] = 0;
+    this.gScoreStamp[start] = stamp;
     this.fScore[start] = adapter.heuristic(start, goal);
     this.cameFrom[start] = -1;
     this.openHeap.push(start);
-    this.visitedStamp[start] = stamp;
 
     let iterations = 0;
 
@@ -129,6 +136,14 @@ export class FastAStar {
       iterations++;
 
       const current = this.openHeap.pop();
+
+      // Skip if already processed (duplicate from heap)
+      if (this.closedStamp[current] === stamp) {
+        continue;
+      }
+
+      // Mark as processed
+      this.closedStamp[current] = stamp;
 
       // Found goal
       if (current === goal) {
@@ -139,23 +154,28 @@ export class FastAStar {
       const currentGScore = this.gScore[current];
 
       for (const neighbor of neighbors) {
+        // Skip already processed neighbors
+        if (this.closedStamp[neighbor] === stamp) {
+          continue;
+        }
+
         const tentativeGScore = currentGScore + adapter.getCost(current, neighbor);
 
-        // If we haven't visited this node, or found a better path
-        if (this.visitedStamp[neighbor] !== stamp || tentativeGScore < this.gScore[neighbor]) {
+        // If we haven't visited this neighbor yet, or found a better path
+        const hasValidGScore = this.gScoreStamp[neighbor] === stamp;
+        if (!hasValidGScore || tentativeGScore < this.gScore[neighbor]) {
           this.cameFrom[neighbor] = current;
           this.gScore[neighbor] = tentativeGScore;
+          this.gScoreStamp[neighbor] = stamp;
           this.fScore[neighbor] = tentativeGScore + adapter.heuristic(neighbor, goal);
 
-          if (this.visitedStamp[neighbor] !== stamp) {
-            this.visitedStamp[neighbor] = stamp;
-            this.openHeap.push(neighbor);
-          }
+          // Add to heap (allow duplicates for better paths)
+          this.openHeap.push(neighbor);
         }
       }
     }
 
-    return null; // No path found
+    return null;
   }
 
   private reconstructPath(start: number, goal: number): number[] {
