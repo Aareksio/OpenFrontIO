@@ -181,7 +181,7 @@ export class TrainStationMapAdapter implements GraphAdapter<TrainStation> {
     return node.neighbors();
   }
 
-  cost(node: TrainStation): number {
+  cost(node: TrainStation, _from?: TrainStation): number {
     return 1;
   }
 

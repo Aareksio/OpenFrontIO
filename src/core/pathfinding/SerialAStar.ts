@@ -6,7 +6,7 @@ import { AStar, PathFindResultType } from "./AStar";
  */
 export interface GraphAdapter<NodeType> {
   neighbors(node: NodeType): NodeType[];
-  cost(node: NodeType): number;
+  cost(to: NodeType, from?: NodeType): number;
   position(node: NodeType): { x: number; y: number };
   isTraversable(from: NodeType, to: NodeType): boolean;
 }
@@ -124,7 +124,7 @@ export class SerialAStar<NodeType> implements AStar<NodeType> {
       const openSet = isForward ? this.fwdOpenSet : this.bwdOpenSet;
       const cameFrom = isForward ? this.fwdCameFrom : this.bwdCameFrom;
 
-      const tentativeGScore = gScore.get(current)! + this.graph.cost(neighbor);
+      const tentativeGScore = gScore.get(current)! + this.graph.cost(neighbor, current);
       let penalty = 0;
       // With a direction change penalty, the path will get as straight as possible
       if (this.directionChangePenalty > 0) {
