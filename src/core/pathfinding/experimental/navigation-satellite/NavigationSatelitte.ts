@@ -1,7 +1,5 @@
 import { Game } from '../../../game/Game';
 import { GameMap, TileRef } from '../../../game/GameMap';
-import { MiniAStar } from '../../MiniAStar';
-import { PathFindResultType } from '../../AStar';
 import { getWaterComponentId } from './WaterComponents';
 import { FastBFS } from './FastBFS';
 import { FastAStar, FastAStarAdapter } from './FastAStar';
@@ -115,6 +113,87 @@ class FastGatewayGraphAdapter implements FastAStarAdapter {
     const dx = Math.abs(nodeGw.x - goalGw.x);
     const dy = Math.abs(nodeGw.y - goalGw.y);
     return dx + dy;
+  }
+}
+
+// Bounded adapter for local pathfinding with coordinate mapping
+class BoundedGameMapAdapter implements FastAStarAdapter {
+  private readonly minX: number;
+  private readonly minY: number;
+  private readonly width: number;
+  private readonly height: number;
+  readonly numNodes: number;
+
+  constructor(
+    private miniMap: GameMap,
+    startTile: TileRef,
+    goalTile: TileRef,
+    margin: number
+  ) {
+    const startX = miniMap.x(startTile);
+    const startY = miniMap.y(startTile);
+    const goalX = miniMap.x(goalTile);
+    const goalY = miniMap.y(goalTile);
+
+    // Calculate bounding box with margin
+    this.minX = Math.max(0, Math.min(startX, goalX) - margin);
+    this.minY = Math.max(0, Math.min(startY, goalY) - margin);
+    const maxX = Math.min(miniMap.width(), Math.max(startX, goalX) + margin);
+    const maxY = Math.min(miniMap.height(), Math.max(startY, goalY) + margin);
+
+    this.width = maxX - this.minX;
+    this.height = maxY - this.minY;
+    this.numNodes = this.width * this.height;
+  }
+
+  // Convert global TileRef to local node ID
+  tileToNode(tile: TileRef): number {
+    const x = this.miniMap.x(tile) - this.minX;
+    const y = this.miniMap.y(tile) - this.minY;
+
+    if (x < 0 || x >= this.width || y < 0 || y >= this.height) {
+      return -1; // Outside bounds
+    }
+
+    return y * this.width + x;
+  }
+
+  // Convert local node ID to global TileRef
+  nodeToTile(node: number): TileRef {
+    const localX = node % this.width;
+    const localY = Math.floor(node / this.width);
+    return this.miniMap.ref(localX + this.minX, localY + this.minY);
+  }
+
+  getNeighbors(node: number): number[] {
+    const tile = this.nodeToTile(node);
+    const neighbors = this.miniMap.neighbors(tile);
+    const result: number[] = [];
+
+    for (const neighborTile of neighbors) {
+      if (!this.miniMap.isWater(neighborTile)) continue;
+
+      const neighborNode = this.tileToNode(neighborTile);
+      if (neighborNode !== -1) {
+        result.push(neighborNode);
+      }
+    }
+
+    return result;
+  }
+
+  getCost(from: number, to: number): number {
+    return 1; // Uniform cost for water tiles
+  }
+
+  heuristic(node: number, goal: number): number {
+    const nodeTile = this.nodeToTile(node);
+    const goalTile = this.nodeToTile(goal);
+
+    const dx = Math.abs(this.miniMap.x(nodeTile) - this.miniMap.x(goalTile));
+    const dy = Math.abs(this.miniMap.y(nodeTile) - this.miniMap.y(goalTile));
+
+    return dx + dy; // Manhattan distance
   }
 }
 
@@ -458,7 +537,7 @@ class GatewayGraphBuilder {
         }
 
         // Skip if Manhattan distance exceeds reasonable limit
-        // Gateways are already on miniMap, so use coordinates directly
+        // Allow up to 3×SECTOR_SIZE for graph connectivity
         const dx = Math.abs(gateways[i].x - gateways[j].x);
         const dy = Math.abs(gateways[i].y - gateways[j].y);
         const manhattanDist = dx + dy;
@@ -503,6 +582,7 @@ class GatewayGraphBuilder {
   }
 
   private findLocalPathCost(from: TileRef, to: TileRef): number {
+    // Allow up to 3×SECTOR_SIZE for graph connectivity
     const maxDistance = this.sectorSize * 3;
 
     const result = this.fastBFS.search(
@@ -529,17 +609,34 @@ class GatewayGraphBuilder {
   }
 }
 
+type LocalPathStats = {
+  boundedRegionSize: number;  // Total nodes in bounding box
+  actualNodesVisited: number; // Actual nodes visited by A*
+  astarTime: number;
+  upscaleTime: number;
+  totalTime: number;
+  usedFallback: boolean;  // Whether search exceeded tier limits (should be rare)
+  tierUsed?: number;  // Which tier was used (0, 1, or 2)
+};
+
 export class NavigationSatellite {
   private graph!: GatewayGraph;
   private initialized = false;
   private fastBFS!: FastBFS;
   private fastAStar!: FastAStar;
+  private localAStarTier1!: FastAStar; // 128×128 = 16,384 nodes
+  private localAStarTier2!: FastAStar; // 192×192 = 36,864 nodes
 
   public debugInfo: PathDebugInfo | null = null;
+  public localPathStats: LocalPathStats[] = []; // Instrumentation data
 
   constructor(
     private game: Game,
-    private options: { cachePaths?: boolean } = {}
+    private options: {
+      cachePaths?: boolean,
+      instrumentLocalPaths?: boolean,
+      localPathMargin?: number  // Margin for bounded local paths (in miniMap tiles)
+    } = {}
   ) {}
 
   initialize(debug: boolean = false) {
@@ -551,6 +648,12 @@ export class NavigationSatellite {
 
     const gatewayCount = Math.max(this.graph.getAllGateways().length);
     this.fastAStar = new FastAStar(gatewayCount);
+
+    // Pre-allocate tiered FastAStar instances for local pathfinding
+    // Tier 1: 128×128 = 16,384 nodes (handles 99.95% of searches)
+    // Tier 2: 192×192 = 36,864 nodes (handles remaining 0.05%)
+    this.localAStarTier1 = new FastAStar(128 * 128);
+    this.localAStarTier2 = new FastAStar(192 * 192);
 
     this.initialized = true;
   }
@@ -820,18 +923,163 @@ export class NavigationSatellite {
   }
 
   private findLocalPath(
-    from: TileRef, 
-    to: TileRef, 
+    from: TileRef,
+    to: TileRef,
     maxIterations: number = 10000
   ): TileRef[] | null {
-    const miniMap = this.game.miniMap();
-    const miniAStar = new MiniAStar(this.game, miniMap, from, to, maxIterations, 1);
+    const startTime = this.options.instrumentLocalPaths ? performance.now() : 0;
 
-    if (miniAStar.compute() === PathFindResultType.Completed) {
-      return miniAStar.reconstructPath();
+    const map = this.game.map();
+    const miniMap = this.game.miniMap();
+
+    // Convert full map coordinates to miniMap coordinates
+    const miniFrom = miniMap.ref(
+      Math.floor(map.x(from) / 2),
+      Math.floor(map.y(from) / 2)
+    );
+    const miniTo = miniMap.ref(
+      Math.floor(map.x(to) / 2),
+      Math.floor(map.y(to) / 2)
+    );
+
+    // Create bounded adapter with configurable margin (default: SECTOR_SIZE = 32 tiles)
+    const margin = this.options.localPathMargin ?? GatewayGraphBuilder.SECTOR_SIZE;
+    const adapter = new BoundedGameMapAdapter(miniMap, miniFrom, miniTo, margin);
+
+    // Select appropriate tier based on bounded region size
+    const tier1Limit = 128 * 128; // 16,384 nodes
+    const tier2Limit = 192 * 192; // 36,864 nodes
+    const useTier2 = adapter.numNodes > tier1Limit;
+
+    if (adapter.numNodes > tier2Limit) {
+      // Region exceeds tier limits - fallback
+      if (this.options.instrumentLocalPaths) {
+        this.localPathStats.push({
+          boundedRegionSize: adapter.numNodes,
+          actualNodesVisited: 0,
+          astarTime: 0,
+          upscaleTime: 0,
+          totalTime: 0,
+          usedFallback: true,
+          tierUsed: undefined
+        });
+      }
+      return null; // Should never happen with margin=32
     }
 
-    return null
+    const selectedAStar = useTier2 ? this.localAStarTier2 : this.localAStarTier1;
+    const tierUsed = useTier2 ? 2 : 1;
+
+    // Convert to local node IDs
+    const startNode = adapter.tileToNode(miniFrom);
+    const goalNode = adapter.tileToNode(miniTo);
+
+    if (startNode === -1 || goalNode === -1) {
+      return null; // Start or goal outside bounds
+    }
+
+    // Run FastAStar on bounded region using selected tier
+    const astarStart = this.options.instrumentLocalPaths ? performance.now() : 0;
+    const path = selectedAStar.search(startNode, goalNode, adapter, maxIterations);
+    const astarEnd = this.options.instrumentLocalPaths ? performance.now() : 0;
+
+    if (!path) {
+      return null;
+    }
+
+    // Convert path from local node IDs back to miniMap TileRefs
+    const miniPath = path.map((node: number) => adapter.nodeToTile(node));
+
+    // Upscale from miniMap to full map (same logic as MiniAStar)
+    const upscaleStart = this.options.instrumentLocalPaths ? performance.now() : 0;
+    const result = this.upscalePathToFullMap(miniPath, from, to);
+    const upscaleEnd = this.options.instrumentLocalPaths ? performance.now() : 0;
+
+    // Record instrumentation data
+    if (this.options.instrumentLocalPaths) {
+      this.localPathStats.push({
+        boundedRegionSize: adapter.numNodes,
+        actualNodesVisited: selectedAStar.lastSearchNodesVisited,
+        astarTime: astarEnd - astarStart,
+        upscaleTime: upscaleEnd - upscaleStart,
+        totalTime: upscaleEnd - startTime,
+        usedFallback: false,
+        tierUsed: tierUsed
+      });
+    }
+
+    return result;
+  }
+
+  private upscalePathToFullMap(miniPath: TileRef[], from: TileRef, to: TileRef): TileRef[] {
+    const map = this.game.map();
+    const miniMap = this.game.miniMap();
+
+    // Convert miniMap path to cells
+    const miniCells = miniPath.map(tile => ({
+      x: miniMap.x(tile),
+      y: miniMap.y(tile)
+    }));
+
+    // FIRST: Scale all points (2x)
+    const scaledPath = miniCells.map(point => ({
+      x: point.x * 2,
+      y: point.y * 2
+    }));
+
+    // SECOND: Interpolate between scaled points
+    const smoothPath: Array<{ x: number; y: number }> = [];
+    for (let i = 0; i < scaledPath.length - 1; i++) {
+      const current = scaledPath[i];
+      const next = scaledPath[i + 1];
+
+      // Add the current point
+      smoothPath.push(current);
+
+      // Calculate dx/dy from SCALED coordinates
+      const dx = next.x - current.x;
+      const dy = next.y - current.y;
+      const distance = Math.max(Math.abs(dx), Math.abs(dy));
+      const steps = distance;
+
+      // Add intermediate points
+      for (let step = 1; step < steps; step++) {
+        smoothPath.push({
+          x: Math.round(current.x + (dx * step) / steps),
+          y: Math.round(current.y + (dy * step) / steps)
+        });
+      }
+    }
+
+    // Add last point
+    if (scaledPath.length > 0) {
+      smoothPath.push(scaledPath[scaledPath.length - 1]);
+    }
+
+    const scaledCells = smoothPath;
+
+    // Fix extremes to ensure exact start/end
+    const fromCell = { x: map.x(from), y: map.y(from) };
+    const toCell = { x: map.x(to), y: map.y(to) };
+
+    // Ensure start is correct
+    const startIdx = scaledCells.findIndex(c => c.x === fromCell.x && c.y === fromCell.y);
+    if (startIdx === -1) {
+      scaledCells.unshift(fromCell);
+    } else if (startIdx !== 0) {
+      scaledCells.splice(0, startIdx);
+    }
+
+    // Ensure end is correct
+    const endIdx = scaledCells.findIndex(c => c.x === toCell.x && c.y === toCell.y);
+    if (endIdx === -1) {
+      scaledCells.push(toCell);
+    } else if (endIdx !== scaledCells.length - 1) {
+      scaledCells.splice(endIdx + 1);
+    }
+
+    // Convert back to TileRefs
+    return scaledCells.map(cell => map.ref(cell.x, cell.y));
   }
 
   private tracePath(from: TileRef, to: TileRef): TileRef[] | null {
