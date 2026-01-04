@@ -28,13 +28,23 @@ interface Sector {
   edges: Edge[];
 }
 
-interface DebugInfo {
-  gatewayPath: number[] | null;
-  gatewayWaypoints: Array<[number, number]> | null;
+type BuildDebugInfo = {
+  sectors: number | null;
+  gateways: number | null;
+  edges: number | null;
+  actualBFSCalls: number | null;
+  potentialBFSCalls: number | null;
+  skippedTotal: number | null;
+  skippedByComponentFilter: number | null;
+  skippedByManhattanDistance: number | null;
+  timings: { [key: string]: number };
+}
+
+type PathDebugInfo = {
+  gatewayPath: TileRef[] | null;
   initialPath: TileRef[] | null;
-  smoothedPath: TileRef[] | null;
-  allGateways: Array<{ x: number; y: number; }>;
-  sectorSize: number;
+  smoothPath: TileRef[] | null;
+  graph: { sectorSize: number; gateways: TileRef[]; };
   timings: { [key: string]: number };
 }
 
@@ -125,10 +135,12 @@ class GatewayGraphBuilder {
   private edges = new Map<number, Edge[]>();
   private nextGatewayId = 0;
 
+  // Programatically accessible debug info
+  public debugInfo: BuildDebugInfo | null = null;
+
   constructor(
     private readonly game: Game,
     private readonly sectorSize: number,
-    private readonly debug: boolean
   ) {
     this.miniMap = game.miniMap();
     this.width = this.miniMap.width();
@@ -138,11 +150,26 @@ class GatewayGraphBuilder {
     this.fastBFS = new FastBFS(this.width * this.height);
   }
 
-  build(): GatewayGraph {
-    const startTime = performance.now();
+  build(debug: boolean): GatewayGraph {
+    performance.mark('navsat:build:start');
 
-    // Phase 1: Identify all gateways
-    const phase1Start = performance.now();
+    if (debug) {
+      console.log(`[DEBUG] Building gateway graph with sector size ${this.sectorSize} (${this.sectorsX}x${this.sectorsY} sectors)`);
+
+      this.debugInfo = {
+        sectors: null,
+        gateways: null,
+        edges: null,
+        actualBFSCalls: null,
+        potentialBFSCalls: null,
+        skippedTotal: null,
+        skippedByComponentFilter: null,
+        skippedByManhattanDistance: null,
+        timings: {},
+      }
+    }
+
+    performance.mark('navsat:build:phase1:start');
     for (let sy = 0; sy < this.sectorsY; sy++) {
       for (let sx = 0; sx < this.sectorsX; sx++) {
         this.processSector(sx, sy);
@@ -151,36 +178,43 @@ class GatewayGraphBuilder {
         this.nextGatewayId = this.gateways.size > 0 ? Math.max(...this.gateways.keys()) + 1 : 0;
       }
     }
-    const phase1End = performance.now();
+    performance.mark('navsat:build:phase1:end');
+    const phase1Measure = performance.measure(
+      'navsat:build:phase1',
+      'navsat:build:phase1:start',
+      'navsat:build:phase1:end'
+    );
 
-    if (this.debug) console.log(`  Phase 1 (Gateway identification): ${(phase1End - phase1Start).toFixed(2)}ms`);
+    if (debug) {
+      console.log(`[DEBUG] Phase 1 (Gateway identification): ${phase1Measure.duration.toFixed(2)}ms`);
 
-    // Phase 2: Build intra-sector edges
-    const phase2Start = performance.now();
-    let potentialBFSCalls = 0;
-    let skippedByComponentFilter = 0;
-    let skippedByManhattanDistance = 0;
-    let successfulConnections = 0;
+      this.debugInfo!.edges = 0;
+      this.debugInfo!.potentialBFSCalls = 0;
+      this.debugInfo!.skippedByComponentFilter = 0;
+      this.debugInfo!.skippedByManhattanDistance = 0;
+    }
 
+    performance.mark('navsat:build:phase2:start');
     for (const sector of this.sectors.values()) {
       const gws = sector.gateways;
       const numGateways = gws.length;
-      potentialBFSCalls += (numGateways * (numGateways - 1)) / 2;
 
-      // Count filter savings
-      for (let i = 0; i < gws.length; i++) {
-        for (let j = i + 1; j < gws.length; j++) {
-          if (gws[i].componentId !== gws[j].componentId) {
-            skippedByComponentFilter++;
-          } else {
-            // Check Manhattan distance (gateways are on miniMap)
-            const dx = Math.abs(gws[i].x - gws[j].x);
-            const dy = Math.abs(gws[i].y - gws[j].y);
-            const manhattanDist = dx + dy;
-            const maxDistance = this.sectorSize * 12;
+      if (debug) {
+        this.debugInfo!.potentialBFSCalls! += (numGateways * (numGateways - 1)) / 2;
 
-            if (manhattanDist > maxDistance) {
-              skippedByManhattanDistance++;
+        for (let i = 0; i < gws.length; i++) {
+          for (let j = i + 1; j < gws.length; j++) {
+            if (gws[i].componentId !== gws[j].componentId) {
+              this.debugInfo!.skippedByComponentFilter!++;
+            } else {
+              const dx = Math.abs(gws[i].x - gws[j].x);
+              const dy = Math.abs(gws[i].y - gws[j].y);
+              const manhattanDist = dx + dy;
+              const maxDistance = this.sectorSize * 12;
+
+              if (manhattanDist > maxDistance) {
+                this.debugInfo!.skippedByManhattanDistance!++;
+              }
             }
           }
         }
@@ -188,31 +222,54 @@ class GatewayGraphBuilder {
 
       this.buildSectorConnections(sector);
 
-      successfulConnections += sector.edges.length / 2; // Divide by 2 because bidirectional
+      if (debug) {
+        // Divide by 2 because bidirectional
+        this.debugInfo!.edges! += sector.edges.length / 2;
+      }
     }
 
-    const actualBFSCalls = potentialBFSCalls - skippedByComponentFilter - skippedByManhattanDistance;
-    const totalSkipped = skippedByComponentFilter + skippedByManhattanDistance;
-
-    const phase2End = performance.now();
-    if (this.debug) {
-      console.log(`  Phase 2 (Connection building): ${(phase2End - phase2Start).toFixed(2)}ms`);
-      console.log(`    Potential BFS calls: ${potentialBFSCalls}`);
-      console.log(`    Skipped by component filter: ${skippedByComponentFilter} (${((skippedByComponentFilter / potentialBFSCalls) * 100).toFixed(1)}%)`);
-      console.log(`    Skipped by Manhattan distance: ${skippedByManhattanDistance} (${((skippedByManhattanDistance / potentialBFSCalls) * 100).toFixed(1)}%)`);
-      console.log(`    Total skipped: ${totalSkipped} (${((totalSkipped / potentialBFSCalls) * 100).toFixed(1)}%)`);
-      console.log(`    Actual BFS calls: ${actualBFSCalls}`);
-      console.log(`    Successful connections: ${successfulConnections} (${((successfulConnections / actualBFSCalls) * 100).toFixed(1)}% success rate)`);
+    if (debug) {
+      this.debugInfo!.actualBFSCalls = this.debugInfo!.potentialBFSCalls! - this.debugInfo!.skippedByComponentFilter! - this.debugInfo!.skippedByManhattanDistance!;
+      this.debugInfo!.skippedTotal = this.debugInfo!.skippedByComponentFilter! + this.debugInfo!.skippedByManhattanDistance!;
     }
 
-    const endTime = performance.now();
-    if (this.debug) {
-      console.log(`Gateway graph built in ${(endTime - startTime).toFixed(2)}ms`);
-      console.log(`Total gateways: ${this.gateways.size}`);
-      console.log(`Total sectors: ${this.sectors.size}`);
+    performance.mark('navsat:build:phase2:end');
+    const phase2Measure = performance.measure(
+      'navsat:build:phase2',
+      'navsat:build:phase2:start',
+      'navsat:build:phase2:end'
+    );
+
+    if (debug) {
+      console.log(`[DEBUG] Phase 2 (Connection building): ${phase2Measure.duration.toFixed(2)}ms`);
+      console.log(`[DEBUG]   Potential BFS calls: ${this.debugInfo!.potentialBFSCalls}`);
+      console.log(`[DEBUG]   Skipped by component filter: ${this.debugInfo!.skippedByComponentFilter} (${((this.debugInfo!.skippedByComponentFilter! / this.debugInfo!.potentialBFSCalls!) * 100).toFixed(1)}%)`);
+      console.log(`[DEBUG]   Skipped by Manhattan distance: ${this.debugInfo!.skippedByManhattanDistance} (${((this.debugInfo!.skippedByManhattanDistance! / this.debugInfo!.potentialBFSCalls!) * 100).toFixed(1)}%)`);
+      console.log(`[DEBUG]   Total skipped: ${this.debugInfo!.skippedTotal} (${((this.debugInfo!.skippedTotal! / this.debugInfo!.potentialBFSCalls!) * 100).toFixed(1)}%)`);
+      console.log(`[DEBUG]   Actual BFS calls: ${this.debugInfo!.actualBFSCalls}`);
+      console.log(`[DEBUG]   Edges Found: ${this.debugInfo!.edges} (${((this.debugInfo!.edges! / this.debugInfo!.actualBFSCalls!) * 100).toFixed(1)}% success rate)`);
     }
 
-    return new GatewayGraph(this.sectors, this.gateways, this.edges, this.sectorSize, this.sectorsX);
+    performance.mark('navsat:build:end');
+    const totalMeasure = performance.measure(
+      'navsat:build:total',
+      'navsat:build:start',
+      'navsat:build:end'
+    );
+
+    if (debug) {
+      console.log(`[DEBUG] Gateway graph built in ${totalMeasure.duration.toFixed(2)}ms`);
+      console.log(`[DEBUG] Gateways: ${this.gateways.size}`);
+      console.log(`[DEBUG] Sectors: ${this.sectors.size}`);
+    }
+
+    return new GatewayGraph(
+      this.sectors,
+      this.gateways,
+      this.edges,
+      this.sectorSize,
+      this.sectorsX
+    );
   }
 
   private getSectorKey(sectorX: number, sectorY: number): number {
@@ -467,8 +524,8 @@ class GatewayGraphBuilder {
     sectorSize: number = GatewayGraphBuilder.SECTOR_SIZE,
     debug: boolean = false
   ): GatewayGraph {
-    const builder = new GatewayGraphBuilder(game, sectorSize, debug);
-    return builder.build();
+    const builder = new GatewayGraphBuilder(game, sectorSize);
+    return builder.build(debug);
   }
 }
 
@@ -478,8 +535,7 @@ export class NavigationSatellite {
   private fastBFS!: FastBFS;
   private fastAStar!: FastAStar;
 
-  public debugInfo: DebugInfo | null = null;
-  private debugTimeStart: number | null = null;
+  public debugInfo: PathDebugInfo | null = null;
 
   constructor(
     private game: Game,
@@ -487,13 +543,14 @@ export class NavigationSatellite {
   ) {}
 
   initialize(debug: boolean = false) {
-    this.graph = GatewayGraphBuilder.build(this.game, GatewayGraphBuilder.SECTOR_SIZE, debug);
+    const gatewayGraphBuilder = new GatewayGraphBuilder(this.game, GatewayGraphBuilder.SECTOR_SIZE);
+    this.graph = gatewayGraphBuilder.build(debug);
+
     const miniMap = this.game.miniMap();
     this.fastBFS = new FastBFS(miniMap.width() * miniMap.height());
 
-    // Size FastAStar based on number of gateways
-    const maxGatewayId = Math.max(...this.graph.getAllGateways().map(gw => gw.id), 0);
-    this.fastAStar = new FastAStar(maxGatewayId + 1);
+    const gatewayCount = Math.max(this.graph.getAllGateways().length);
+    this.fastAStar = new FastAStar(gatewayCount);
 
     this.initialized = true;
   }
@@ -504,17 +561,18 @@ export class NavigationSatellite {
     debug: boolean = false
   ): TileRef[] | null {
     if (!this.initialized) {
-      this.initialize(debug);
+      throw new Error('NavigationSatellite not initialized. Call initialize() before using findPath().');
     }
 
     if (debug) {
       this.debugInfo = {
         gatewayPath: null,
-        gatewayWaypoints: null,
         initialPath: null,
-        smoothedPath: null,
-        allGateways: this.getAllGatewaysDebugInfo(),
-        sectorSize: this.graph.sectorSize,
+        smoothPath: null,
+        graph: { 
+          sectorSize: this.graph.sectorSize, 
+          gateways: this.graph.getAllGateways().map(gw => gw.tile)
+        },
         timings: {},
       };
     }
@@ -522,63 +580,101 @@ export class NavigationSatellite {
     const dist = this.game.manhattanDist(from, to);
 
     if (dist < 500) {
-      if (debug) this.debugTimeStart = performance.now();
+      performance.mark('navsat:findPath:earlyExitLocalPath:start');
       const localPath = this.findLocalPath(from, to, 2000);
-      if (debug) this.debugInfo!.timings.earlyExitLocalPath = performance.now() - this.debugTimeStart!;
+      performance.mark('navsat:findPath:earlyExitLocalPath:end');
+      const measure = performance.measure(
+        'navsat:findPath:earlyExitLocalPath',
+        'navsat:findPath:earlyExitLocalPath:start',
+        'navsat:findPath:earlyExitLocalPath:end'
+      );
+
+      if (debug) {
+        this.debugInfo!.timings.earlyExitLocalPath = measure.duration;
+      }
 
       if (localPath) {
-        if (debug) console.log(`  [DEBUG] Direct local path found for dist=${dist}, length=${localPath.length}`);
+        if (debug) {
+          console.log(`[DEBUG] Direct local path found for dist=${dist}, length=${localPath.length}`);
+        }
+
         return localPath;
       }
-      
-      if (debug) console.log(`  [DEBUG] Direct path failed for dist=${dist}, falling back to gateway graph`);
+
+      if (debug) {
+        console.log(`[DEBUG] Direct path failed for dist=${dist}, falling back to gateway graph`);
+      }
     }
 
-    if (debug) this.debugTimeStart = performance.now();
+    performance.mark('navsat:findPath:findGateways:start');
     const startGateway = this.findNearestGateway(from);
     const endGateway = this.findNearestGateway(to);
-    if (debug) this.debugInfo!.timings.findGateways = performance.now() - this.debugTimeStart!;
+    performance.mark('navsat:findPath:findGateways:end');
+    const findGatewaysMeasure = performance.measure(
+      'navsat:findPath:findGateways',
+      'navsat:findPath:findGateways:start',
+      'navsat:findPath:findGateways:end'
+    );
+
+    if (debug) {
+      this.debugInfo!.timings.findGateways = findGatewaysMeasure.duration;
+    }
 
     if (!startGateway) {
-      if (debug) console.log(`  [DEBUG] Cannot find start gateway for (${this.game.x(from)}, ${this.game.y(from)})`);
+      if (debug) {
+        console.log(`[DEBUG] Cannot find start gateway for (${this.game.x(from)}, ${this.game.y(from)})`);
+      }
+
       return null;
     }
 
     if (!endGateway) {
-      if (debug) console.log(`  [DEBUG] Cannot find end gateway for (${this.game.x(to)}, ${this.game.y(to)})`);
+      if (debug) {
+        console.log(`[DEBUG] Cannot find end gateway for (${this.game.x(to)}, ${this.game.y(to)})`);
+      }
+
       return null;
     }
 
     if (startGateway.id === endGateway.id) {
-      if (debug) console.log(`  [DEBUG] Start and end gateways are the same (ID=${startGateway.id}), finding local path`);
+      if (debug) { 
+        console.log(`[DEBUG] Start and end gateways are the same (ID=${startGateway.id}), finding local path`);
+      }
+
       return this.findLocalPath(from, to);
     }
 
-    if (debug) this.debugTimeStart = performance.now();
+    performance.mark('navsat:findPath:findGatewayPath:start');
     const gatewayPath = this.findGatewayPath(startGateway.id, endGateway.id);
-    if (debug) this.debugInfo!.timings.findGatewayPath = performance.now() - this.debugTimeStart!;
+    performance.mark('navsat:findPath:findGatewayPath:end');
+    const findGatewayPathMeasure = performance.measure(
+      'navsat:findPath:findGatewayPath',
+      'navsat:findPath:findGatewayPath:start',
+      'navsat:findPath:findGatewayPath:end'
+    );
 
-    if (debug) this.debugInfo!.gatewayPath = gatewayPath;
+    if (debug) {
+      this.debugInfo!.timings.findGatewayPath = findGatewayPathMeasure.duration;
+      this.debugInfo!.gatewayPath = gatewayPath;
+    }
 
     if (!gatewayPath) {
-      if (debug) console.log(`  [DEBUG] No gateway path between gateways ${startGateway.id} and ${endGateway.id}`);
+      if (debug) {
+        console.log(`[DEBUG] No gateway path between gateways ${startGateway.id} and ${endGateway.id}`);
+      }
+      
       return null;
     }
 
-    if (debug) console.log(`  [DEBUG] Gateway path found: ${gatewayPath.length} waypoints`);
+    if (debug) {
+      console.log(`[DEBUG] Gateway path found: ${gatewayPath.length} waypoints`);
+    }
 
     const initialPath: TileRef[] = [];
     const map = this.game.map();
     const miniMap = this.game.miniMap();
 
-    if (debug) {
-      this.debugInfo!.gatewayWaypoints = gatewayPath.map(gwId => {
-        const gw = this.graph.getGateway(gwId)!;
-        return [miniMap.x(gw.tile) * 2, miniMap.y(gw.tile) * 2];
-      });
-    }
-
-    if (debug) this.debugTimeStart = performance.now();
+    performance.mark('navsat:findPath:buildInitialPath:start');
 
     // 1. Find path from start to first gateway
     const firstGateway = this.graph.getGateway(gatewayPath[0])!;
@@ -642,23 +738,35 @@ export class NavigationSatellite {
     // Skip first tile to avoid duplication
     initialPath.push(...endSegment.slice(1));
 
-    if (debug) this.debugInfo!.timings.buildInitialPath = performance.now() - this.debugTimeStart!;
-    if (debug) this.debugInfo!.initialPath = initialPath;
+    performance.mark('navsat:findPath:buildInitialPath:end');
+    const buildInitialPathMeasure = performance.measure(
+      'navsat:findPath:buildInitialPath',
+      'navsat:findPath:buildInitialPath:start',
+      'navsat:findPath:buildInitialPath:end'
+    );
 
-    if (debug) console.log(`  [DEBUG] Initial path: ${initialPath.length} tiles`);
+    if (debug) {
+      this.debugInfo!.timings.buildInitialPath = buildInitialPathMeasure.duration;
+      this.debugInfo!.initialPath = initialPath;
+      console.log(`[DEBUG] Initial path: ${initialPath.length} tiles`);
+    }
 
-    if (debug) this.debugTimeStart = performance.now();
-    const smoothedPath = this.smoothPath(initialPath)
-    if (debug) this.debugInfo!.timings.buildSmoothPath = performance.now() - this.debugTimeStart!;
+    performance.mark('navsat:findPath:smoothPath:start');
+    const smoothedPath = this.smoothPath(initialPath);
+    performance.mark('navsat:findPath:smoothPath:end');
+    const smoothPathMeasure = performance.measure(
+      'navsat:findPath:smoothPath',
+      'navsat:findPath:smoothPath:start',
+      'navsat:findPath:smoothPath:end'
+    );
 
-    if (debug) console.log(`  [DEBUG] Smoothed path: ${initialPath.length} → ${smoothedPath.length} tiles`);
-    if (debug) this.debugInfo!.smoothedPath = smoothedPath;
+    if (debug) {
+      this.debugInfo!.timings.buildSmoothPath = smoothPathMeasure.duration
+      this.debugInfo!.smoothPath = smoothedPath;
+      console.log(`[DEBUG] Smoothed path: ${initialPath.length} → ${smoothedPath.length} tiles`);
+    }
 
     return smoothedPath;
-  }
-
-  private getAllGatewaysDebugInfo(): Array<{ x: number; y: number; }> {
-    return this.graph.getAllGateways().map(gw => ({ x: gw.x, y: gw.y }));
   }
 
   private findNearestGateway(tile: TileRef): Gateway | null {
@@ -804,6 +912,7 @@ export class NavigationSatellite {
           x += sx;
           err -= dy;
         }
+
         if (shouldMoveY) {
           y += sy;
           err += dx;
