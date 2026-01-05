@@ -37,90 +37,122 @@ const currentFile = fileURLToPath(import.meta.url);
 const pathfindingDir = dirname(currentFile);
 const syntheticScenariosDir = join(pathfindingDir, "scenarios", "synthetic");
 
-async function runScenario(adapterName: string, scenarioName: string) {
+interface RunOptions {
+  silent?: boolean;
+  iterations?: number;
+}
+
+const DEFAULT_ADAPTER = "NavSat";
+const DEFAULT_SCENARIO = "giantworldmap-lite";
+
+async function runScenario(adapterName: string, scenarioName: string, options: RunOptions = {}) {
   const { game, routes, performanceIterations } = await getScenario(scenarioName);
   const adapter = getAdapter(game, adapterName);
+  const { silent = false } = options;
 
-  console.log(`Date: ${new Date().toISOString()}`);
-  console.log(`Benchmarking: ${adapterName}`);
-  console.log(`Scenario: ${scenarioName}`);
-  console.log(`Routes: ${routes.length}`);
-  console.log("");
+  if (!silent) {
+    console.log(`Date: ${new Date().toISOString()}`);
+    console.log(`Benchmarking: ${adapterName}`);
+    console.log(`Scenario: ${scenarioName}`);
+    console.log(`Routes: ${routes.length}`);
+    console.log(``);
+  }
 
   // =============================================================================
 
-  printHeader("METRIC 1: INITIALIZATION TIME");
+  if (!silent) {
+    printHeader("METRIC 1: INITIALIZATION TIME");
+  }
 
   const { time: initializationTime } = measureTime(() => adapter.initialize());
 
-  console.log(`Initialization time: ${initializationTime.toFixed(2)}ms`);
-  console.log("");
+  if (!silent) {
+    console.log(`Initialization time: ${initializationTime.toFixed(2)}ms`);
+    console.log(``);
+  }
 
   // =============================================================================
 
-  printHeader("METRIC 2: PATH DISTANCE");
+  if (!silent) {
+    printHeader("METRIC 2: PATH DISTANCE");
+    printRow(["Route", "Path Length"], [40, 12]);
+  }
 
   const results: BenchmarkResult[] = [];
-
-  printRow(["Route", "Path Length"], [40, 12]);
 
   for (const route of routes) {
     const pathLength = measurePathLength(adapter, route);
     results.push({ route: route.name, pathLength, executionTime: null });
-    printRow([route.name, pathLength !== null ? `${pathLength} tiles` : "FAILED"], [40, 12]);
+    if (!silent) {
+      printRow([route.name, pathLength !== null ? `${pathLength} tiles` : "FAILED"], [40, 12]);
+    }
   }
 
   const { totalDistance, successfulRoutes, totalRoutes } = calculateStats(results);
 
-  console.log("");
-  console.log(`Total distance: ${totalDistance} tiles`);
-  console.log(`Routes completed: ${successfulRoutes} / ${totalRoutes}`);
-  console.log("");
+  if (!silent) {
+    console.log(``);
+    console.log(`Total distance: ${totalDistance} tiles`);
+    console.log(`Routes completed: ${successfulRoutes} / ${totalRoutes}`);
+    console.log(``);
+  }
 
   // =============================================================================
 
-  printHeader("METRIC 3: PATHFINDING TIME");
-
-  printRow(["Route", "Time"], [40, 12]);
+  if (!silent) {
+    printHeader("METRIC 3: PATHFINDING TIME");
+    printRow(["Route", "Time"], [40, 12]);
+  }
 
   for (const route of routes) {
     const result = results.find(r => r.route === route.name);
 
     if (result && result.pathLength !== null) {
-      const execTime = measureExecutionTime(adapter, route, performanceIterations);
+      const execTime = measureExecutionTime(adapter, route, options.iterations ?? performanceIterations);
       result.executionTime = execTime;
-      printRow([route.name, `${execTime!.toFixed(2)}ms`], [40, 12]);
+
+      if (!silent) {
+        printRow([route.name, `${execTime!.toFixed(2)}ms`], [40, 12]);
+      }
     } else {
-      printRow([route.name, "FAILED"], [40, 12]);
+      if (!silent) {
+        printRow([route.name, "FAILED"], [40, 12]);
+      }
     }
   }
 
   const stats = calculateStats(results);
 
-  console.log("");
-  console.log(`Total time: ${stats.totalTime.toFixed(2)}ms`);
-  console.log(`Average time: ${stats.avgTime.toFixed(2)}ms`);
-  console.log(`Routes benchmarked: ${stats.timedRoutes} / ${stats.totalRoutes}`);
-  console.log("");
+  if (!silent) {
+    console.log(``);
+    console.log(`Total time: ${stats.totalTime.toFixed(2)}ms`);
+    console.log(`Average time: ${stats.avgTime.toFixed(2)}ms`);
+    console.log(`Routes benchmarked: ${stats.timedRoutes} / ${stats.totalRoutes}`);
+    console.log(``);
 
-  // =============================================================================
+    // =============================================================================
 
-  printHeader("SUMMARY");
+    printHeader("SUMMARY");
 
-  console.log(`Adapter: ${adapter.name}`);
-  console.log(`Scenario: ${scenarioName}`);
-  console.log("");
+    console.log(`Adapter: ${adapter.name}`);
+    console.log(`Scenario: ${scenarioName}`);
+    console.log(``);
 
-  if (stats.successfulRoutes < stats.totalRoutes) {
-    console.log(`Warning: Only ${stats.successfulRoutes} out of ${stats.totalRoutes} routes were completed successfully!`);
-    console.log("");
+    if (stats.successfulRoutes < stats.totalRoutes) {
+      console.log(`Warning: Only ${stats.successfulRoutes} out of ${stats.totalRoutes} routes were completed successfully!`);
+      console.log(``);
+    }
+
+    console.log("Scores:");
+    console.log(`  Initialization: ${initializationTime.toFixed(2)}ms`);
+    console.log(`  Pathfinding: ${stats.totalTime.toFixed(2)}ms`);
+    console.log(`  Distance: ${totalDistance} tiles`);
+    console.log(``);
+  } else {
+    // Silent mode - just print a summary line
+    const status = stats.successfulRoutes < stats.totalRoutes ? "⚠️ " : "✅";
+    console.log(`${status} ${scenarioName.padEnd(35)} | Init: ${initializationTime.toFixed(2).padStart(8)}ms | Path: ${stats.totalTime.toFixed(2).padStart(9)}ms | Dist: ${totalDistance.toString().padStart(7)} tiles | Routes: ${stats.successfulRoutes}/${stats.totalRoutes}`);
   }
-
-  console.log("Scores:");
-  console.log(`  Initialization: ${initializationTime.toFixed(2)}ms`);
-  console.log(`  Pathfinding: ${stats.totalTime.toFixed(2)}ms`);
-  console.log(`  Distance: ${totalDistance} tiles`);
-  console.log("");
 }
 
 function printUsage() {
@@ -174,28 +206,20 @@ async function main() {
         .sort();
 
       console.log(`Running ${scenarioFiles.length} synthetic scenarios with ${adapterName} adapter...`);
-      console.log("");
+      console.log(``);
 
       for (let i = 0; i < scenarioFiles.length; i++) {
         const mapName = scenarioFiles[i];
         const scenarioName = `synthetic/${mapName}`;
-
-        console.log(`[${i + 1}/${scenarioFiles.length}] Running: ${scenarioName}`);
-        console.log("=".repeat(80));
-        console.log("");
-
-        await runScenario(adapterName, scenarioName);
-
-        if (i < scenarioFiles.length - 1) {
-          console.log("");
-          console.log("=".repeat(80));
-          console.log("");
-        }
+        await runScenario(adapterName, scenarioName, { silent: true, iterations: 1 });
       }
+
+      console.log(``);
+      console.log(`Completed ${scenarioFiles.length} scenarios`);
     } else if (nonFlagArgs.length >= 1) {
       // Run single synthetic scenario
       const mapName = nonFlagArgs[0];
-      const adapterName = nonFlagArgs[1] || "NavSat";
+      const adapterName = nonFlagArgs[1] || DEFAULT_ADAPTER;
       const scenarioName = `synthetic/${mapName}`;
 
       await runScenario(adapterName, scenarioName);
@@ -206,8 +230,8 @@ async function main() {
     }
   } else {
     // Standard mode with positional arguments
-    const scenarioName = nonFlagArgs[0] || "giantworldmap-lite";
-    const adapterName = nonFlagArgs[1] || "NavSat";
+    const scenarioName = nonFlagArgs[0] || DEFAULT_SCENARIO;
+    const adapterName = nonFlagArgs[1] || DEFAULT_ADAPTER;
 
     await runScenario(adapterName, scenarioName);
   }
