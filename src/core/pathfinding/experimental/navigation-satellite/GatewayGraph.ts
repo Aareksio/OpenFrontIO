@@ -137,9 +137,6 @@ export class GatewayGraphBuilder {
     for (let sy = 0; sy < this.sectorsY; sy++) {
       for (let sx = 0; sx < this.sectorsX; sx++) {
         this.processSector(sx, sy);
-
-        // Update nextGatewayId based on gateways created
-        this.nextGatewayId = this.gateways.size > 0 ? Math.max(...this.gateways.keys()) + 1 : 0;
       }
     }
     performance.mark('navsat:build:phase1:end');
@@ -240,11 +237,33 @@ export class GatewayGraphBuilder {
     return sectorY * this.sectorsX + sectorX;
   }
 
+  private getOrCreateGateway(x: number, y: number): Gateway {
+    // Search through all existing gateways to find one at this position
+    for (const gateway of this.gateways.values()) {
+      if (gateway.x === x && gateway.y === y) {
+        return gateway;
+      }
+    }
+
+    const tile = this.miniMap.ref(x, y);
+
+    const gateway: Gateway = { 
+      id: this.nextGatewayId++,
+      x: x,
+      y: y,
+      tile: tile,
+      componentId: getWaterComponentId(this.miniMap, tile)
+    };
+
+    this.gateways.set(gateway.id, gateway);
+    return gateway;
+  }
+
   private addGatewayToSector(sector: Sector, gateway: Gateway): void {
-    // Check if a gateway already exists at this position in the sector
+    // Check for duplicates: a gateway at a sector corner can be
+    // detected by both horizontal and vertical edge scans
     for (const existingGw of sector.gateways) {
       if (existingGw.x === gateway.x && existingGw.y === gateway.y) {
-        // Gateway already exists in this sector, don't add duplicate
         return;
       }
     }
@@ -270,7 +289,6 @@ export class GatewayGraphBuilder {
       const newGateways = this.findGatewaysOnVerticalEdge(edgeX, baseY);
 
       for (const gateway of newGateways) {
-        this.gateways.set(gateway.id, gateway);
         this.addGatewayToSector(sector, gateway);
 
         const rightSectorKey = this.getSectorKey(sx + 1, sy);
@@ -283,11 +301,6 @@ export class GatewayGraphBuilder {
 
         this.addGatewayToSector(rightSector, gateway);
       }
-
-      // Update nextGatewayId to prevent ID collision with horizontal edge
-      if (newGateways.length > 0) {
-        this.nextGatewayId = Math.max(...this.gateways.keys()) + 1;
-      }
     }
 
     if (sy < this.sectorsY - 1) {
@@ -295,7 +308,6 @@ export class GatewayGraphBuilder {
       const newGateways = this.findGatewaysOnHorizontalEdge(edgeY, baseX);
 
       for (const gateway of newGateways) {
-        this.gateways.set(gateway.id, gateway);
         this.addGatewayToSector(sector, gateway);
 
         const bottomSectorKey = this.getSectorKey(sx, sy + 1);
@@ -318,7 +330,6 @@ export class GatewayGraphBuilder {
     const maxY = Math.min(baseY + this.sectorSize, this.height);
 
     let gatewayStart = -1;
-    let currentId = this.nextGatewayId;
 
     const tryAddGateway = (y: number) => {
       if (gatewayStart === -1) return
@@ -327,14 +338,9 @@ export class GatewayGraphBuilder {
       const midY = gatewayStart + Math.floor(gatewayLength / 2);
 
       gatewayStart = -1;
-      const tile = this.miniMap.ref(x, midY);
-      gateways.push({
-        id: currentId++,
-        x: x,
-        y: midY,
-        tile: tile,
-        componentId: getWaterComponentId(this.miniMap, tile)
-      });
+
+      const gateway = this.getOrCreateGateway(x, midY);
+      gateways.push(gateway);
     }
 
     for (let y = baseY; y < maxY; y++) {
@@ -363,7 +369,6 @@ export class GatewayGraphBuilder {
     const maxX = Math.min(baseX + this.sectorSize, this.width);
 
     let gatewayStart = -1;
-    let currentId = this.nextGatewayId;
 
     const tryAddGateway = (x: number) => {
       if (gatewayStart === -1) return
@@ -372,14 +377,9 @@ export class GatewayGraphBuilder {
       const midX = gatewayStart + Math.floor(gatewayLength / 2);
 
       gatewayStart = -1;
-      const tile = this.miniMap.ref(midX, y);
-      gateways.push({
-        id: currentId++,
-        x: midX,
-        y: y,
-        tile: tile,
-        componentId: getWaterComponentId(this.miniMap, tile)
-      });
+
+      const gateway = this.getOrCreateGateway(midX, y);
+      gateways.push(gateway);
     }
 
     for (let x = baseX; x < maxX; x++) {
@@ -510,7 +510,7 @@ export class GatewayGraphBuilder {
       maxManhattanDist = Math.max(maxManhattanDist, dx + dy);
     }
 
-    const maxDistance = maxManhattanDist * 3; // Allow path deviation
+    const maxDistance = maxManhattanDist * 4; // Allow path deviation
     const reachable = new Map<number, number>();
     let foundCount = 0;
 
