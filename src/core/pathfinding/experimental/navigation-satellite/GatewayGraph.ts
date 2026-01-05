@@ -33,9 +33,7 @@ export type BuildDebugInfo = {
   edges: number | null;
   actualBFSCalls: number | null;
   potentialBFSCalls: number | null;
-  skippedTotal: number | null;
   skippedByComponentFilter: number | null;
-  skippedByManhattanDistance: number | null;
   timings: { [key: string]: number };
 }
 
@@ -127,9 +125,7 @@ export class GatewayGraphBuilder {
         edges: null,
         actualBFSCalls: null,
         potentialBFSCalls: null,
-        skippedTotal: null,
         skippedByComponentFilter: null,
-        skippedByManhattanDistance: null,
         timings: {},
       }
     }
@@ -153,7 +149,6 @@ export class GatewayGraphBuilder {
       this.debugInfo!.edges = 0;
       this.debugInfo!.potentialBFSCalls = 0;
       this.debugInfo!.skippedByComponentFilter = 0;
-      this.debugInfo!.skippedByManhattanDistance = 0;
     }
 
     performance.mark('navsat:build:phase2:start');
@@ -168,15 +163,6 @@ export class GatewayGraphBuilder {
           for (let j = i + 1; j < gws.length; j++) {
             if (gws[i].componentId !== gws[j].componentId) {
               this.debugInfo!.skippedByComponentFilter!++;
-            } else {
-              const dx = Math.abs(gws[i].x - gws[j].x);
-              const dy = Math.abs(gws[i].y - gws[j].y);
-              const manhattanDist = dx + dy;
-              const maxDistance = this.sectorSize * 12;
-
-              if (manhattanDist > maxDistance) {
-                this.debugInfo!.skippedByManhattanDistance!++;
-              }
             }
           }
         }
@@ -191,8 +177,7 @@ export class GatewayGraphBuilder {
     }
 
     if (debug) {
-      this.debugInfo!.actualBFSCalls = this.debugInfo!.potentialBFSCalls! - this.debugInfo!.skippedByComponentFilter! - this.debugInfo!.skippedByManhattanDistance!;
-      this.debugInfo!.skippedTotal = this.debugInfo!.skippedByComponentFilter! + this.debugInfo!.skippedByManhattanDistance!;
+      this.debugInfo!.actualBFSCalls = this.debugInfo!.potentialBFSCalls! - this.debugInfo!.skippedByComponentFilter!;
     }
 
     performance.mark('navsat:build:phase2:end');
@@ -206,8 +191,6 @@ export class GatewayGraphBuilder {
       console.log(`[DEBUG] Phase 2 (Connection building): ${phase2Measure.duration.toFixed(2)}ms`);
       console.log(`[DEBUG]   Potential BFS calls: ${this.debugInfo!.potentialBFSCalls}`);
       console.log(`[DEBUG]   Skipped by component filter: ${this.debugInfo!.skippedByComponentFilter} (${((this.debugInfo!.skippedByComponentFilter! / this.debugInfo!.potentialBFSCalls!) * 100).toFixed(1)}%)`);
-      console.log(`[DEBUG]   Skipped by Manhattan distance: ${this.debugInfo!.skippedByManhattanDistance} (${((this.debugInfo!.skippedByManhattanDistance! / this.debugInfo!.potentialBFSCalls!) * 100).toFixed(1)}%)`);
-      console.log(`[DEBUG]   Total skipped: ${this.debugInfo!.skippedTotal} (${((this.debugInfo!.skippedTotal! / this.debugInfo!.potentialBFSCalls!) * 100).toFixed(1)}%)`);
       console.log(`[DEBUG]   Actual BFS calls: ${this.debugInfo!.actualBFSCalls}`);
       console.log(`[DEBUG]   Edges Found: ${this.debugInfo!.edges} (${((this.debugInfo!.edges! / this.debugInfo!.actualBFSCalls!) * 100).toFixed(1)}% success rate)`);
     }
