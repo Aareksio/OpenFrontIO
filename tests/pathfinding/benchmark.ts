@@ -153,6 +153,8 @@ async function runScenario(adapterName: string, scenarioName: string, options: R
     const status = stats.successfulRoutes < stats.totalRoutes ? "⚠️ " : "✅";
     console.log(`${status} ${scenarioName.padEnd(35)} | Init: ${initializationTime.toFixed(2).padStart(8)}ms | Path: ${stats.totalTime.toFixed(2).padStart(9)}ms | Dist: ${totalDistance.toString().padStart(7)} tiles | Routes: ${stats.successfulRoutes}/${stats.totalRoutes}`);
   }
+
+  return { initializationTime, totalTime: stats.totalTime, totalDistance: totalDistance };
 }
 
 function printUsage() {
@@ -208,14 +210,20 @@ async function main() {
       console.log(`Running ${scenarioFiles.length} synthetic scenarios with ${adapterName} adapter...`);
       console.log(``);
 
+      const results: { initializationTime: number; totalTime: number; totalDistance: number }[] = [];
+
       for (let i = 0; i < scenarioFiles.length; i++) {
         const mapName = scenarioFiles[i];
         const scenarioName = `synthetic/${mapName}`;
-        await runScenario(adapterName, scenarioName, { silent: true, iterations: 1 });
+        const result = await runScenario(adapterName, scenarioName, { silent: true, iterations: 1 });
+        results.push(result);
       }
 
       console.log(``);
       console.log(`Completed ${scenarioFiles.length} scenarios`);
+      console.log(`Total Initialization Time: ${results.reduce((sum, r) => sum + r.initializationTime, 0).toFixed(2)}ms`);
+      console.log(`Total Pathfinding Time: ${results.reduce((sum, r) => sum + r.totalTime, 0).toFixed(2)}ms`);
+      console.log(`Total Distance: ${results.reduce((sum, r) => sum + r.totalDistance, 0)} tiles`);
     } else if (nonFlagArgs.length >= 1) {
       // Run single synthetic scenario
       const mapName = nonFlagArgs[0];
