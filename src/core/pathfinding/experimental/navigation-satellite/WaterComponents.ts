@@ -187,7 +187,6 @@ export class WaterComponent {
    */
   getComponentId(tile: TileRef): number {
     if (!this.componentIds) return 0;
-    if (!this.map.isWater(tile)) return 0;
     return this.componentIds[tile] ?? 0;
   }
 }
