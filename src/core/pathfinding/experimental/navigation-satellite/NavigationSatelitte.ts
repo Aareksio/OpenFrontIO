@@ -42,7 +42,18 @@ type PathDebugInfo = {
   gatewayPath: TileRef[] | null;
   initialPath: TileRef[] | null;
   smoothPath: TileRef[] | null;
-  graph: { sectorSize: number; gateways: TileRef[]; };
+  graph: {
+    sectorSize: number;
+    gateways: Array<{ id: number; tile: TileRef }>;
+    edges: Array<{
+      fromId: number;
+      toId: number;
+      from: TileRef;
+      to: TileRef;
+      cost: number;
+      path: TileRef[] | null;
+    }>;
+  };
   timings: { [key: string]: number };
 }
 
@@ -89,7 +100,6 @@ class GatewayGraph {
   }
 }
 
-// FastAStarAdapter for gateway graph pathfinding
 class FastGatewayGraphAdapter implements FastAStarAdapter {
   constructor(private graph: GatewayGraph) {}
 
@@ -116,7 +126,6 @@ class FastGatewayGraphAdapter implements FastAStarAdapter {
   }
 }
 
-// Bounded adapter for local pathfinding with coordinate mapping
 class BoundedGameMapAdapter implements FastAStarAdapter {
   private readonly minX: number;
   private readonly minY: number;
@@ -355,9 +364,23 @@ class GatewayGraphBuilder {
     return sectorY * this.sectorsX + sectorX;
   }
 
+  private addGatewayToSector(sector: Sector, gateway: Gateway): void {
+    // Check if a gateway already exists at this position in the sector
+    for (const existingGw of sector.gateways) {
+      if (existingGw.x === gateway.x && existingGw.y === gateway.y) {
+        // Gateway already exists in this sector, don't add duplicate
+        return;
+      }
+    }
+
+    // Gateway doesn't exist in sector yet, add it
+    sector.gateways.push(gateway);
+  }
+
   private processSector(sx: number, sy: number): void {
     const sectorKey = this.getSectorKey(sx, sy);
     let sector = this.sectors.get(sectorKey);
+
     if (!sector) {
       sector = { x: sx, y: sy, gateways: [], edges: [] };
       this.sectors.set(sectorKey, sector);
@@ -366,57 +389,49 @@ class GatewayGraphBuilder {
     const baseX = sx * this.sectorSize;
     const baseY = sy * this.sectorSize;
 
-    // Find gateways on right edge (if not the last column)
     if (sx < this.sectorsX - 1) {
       const edgeX = Math.min(baseX + this.sectorSize - 1, this.width - 1);
-
       const newGateways = this.findGatewaysOnVerticalEdge(edgeX, baseY);
 
-      sector.gateways.push(...newGateways);
-
-      // Register gateways
       for (const gateway of newGateways) {
         this.gateways.set(gateway.id, gateway);
+        this.addGatewayToSector(sector, gateway);
+
+        const rightSectorKey = this.getSectorKey(sx + 1, sy);
+        let rightSector = this.sectors.get(rightSectorKey);
+
+        if (!rightSector) {
+          rightSector = { x: sx + 1, y: sy, gateways: [], edges: [] };
+          this.sectors.set(rightSectorKey, rightSector);
+        }
+
+        this.addGatewayToSector(rightSector, gateway);
       }
 
-      // Also add these gateways to the adjacent sector on the right
-      const rightSectorKey = this.getSectorKey(sx + 1, sy);
-      let rightSector = this.sectors.get(rightSectorKey);
-
-      if (!rightSector) {
-        rightSector = { x: sx + 1, y: sy, gateways: [], edges: [] };
-        this.sectors.set(rightSectorKey, rightSector);
+      // Update nextGatewayId to prevent ID collision with horizontal edge
+      if (newGateways.length > 0) {
+        this.nextGatewayId = Math.max(...this.gateways.keys()) + 1;
       }
-
-      rightSector.gateways.push(...newGateways);
     }
 
-    // Find gateways on bottom edge (if not the last row)
     if (sy < this.sectorsY - 1) {
       const edgeY = Math.min(baseY + this.sectorSize - 1, this.height - 1);
+      const newGateways = this.findGatewaysOnHorizontalEdge(edgeY, baseX);
 
-      const newGateways = this.findGatewaysOnHorizontalEdge(
-        edgeY, baseX,
-        this.gateways.size > 0 ? Math.max(...this.gateways.keys()) + 1 : this.nextGatewayId
-      );
-
-      sector.gateways.push(...newGateways);
-
-      // Register gateways
       for (const gateway of newGateways) {
         this.gateways.set(gateway.id, gateway);
+        this.addGatewayToSector(sector, gateway);
+
+        const bottomSectorKey = this.getSectorKey(sx, sy + 1);
+        let bottomSector = this.sectors.get(bottomSectorKey);
+
+        if (!bottomSector) {
+          bottomSector = { x: sx, y: sy + 1, gateways: [], edges: [] };
+          this.sectors.set(bottomSectorKey, bottomSector);
+        }
+
+        this.addGatewayToSector(bottomSector, gateway);
       }
-
-      // Also add these gateways to the adjacent sector below
-      const bottomSectorKey = this.getSectorKey(sx, sy + 1);
-      let bottomSector = this.sectors.get(bottomSectorKey);
-
-      if (!bottomSector) {
-        bottomSector = { x: sx, y: sy + 1, gateways: [], edges: [] };
-        this.sectors.set(bottomSectorKey, bottomSector);
-      }
-
-      bottomSector.gateways.push(...newGateways);
     }
   }
 
@@ -429,37 +444,13 @@ class GatewayGraphBuilder {
     let gatewayStart = -1;
     let currentId = this.nextGatewayId;
 
-    for (let y = baseY; y < maxY; y++) {
-      const tile = this.miniMap.ref(x, y);
-      const nextTile = x + 1 < this.miniMap.width() ? this.miniMap.ref(x + 1, y) : -1;
-      const isGateway = this.miniMap.isWater(tile) && nextTile !== -1 && this.miniMap.isWater(nextTile);
+    const tryAddGateway = (y: number) => {
+      if (gatewayStart === -1) return
 
-      if (isGateway) {
-        if (gatewayStart === -1) {
-          gatewayStart = y;
-        }
-      } else {
-        if (gatewayStart !== -1) {
-          const gatewayLength = y - gatewayStart;
-          const midY = gatewayStart + Math.floor(gatewayLength / 2);
-
-          gatewayStart = -1;
-          const tile = this.miniMap.ref(x, midY);
-          gateways.push({
-            id: currentId++,
-            x: x,
-            y: midY,
-            tile: tile,
-            componentId: getWaterComponentId(this.miniMap, tile)
-          });
-        }
-      }
-    }
-
-    if (gatewayStart !== -1) {
-      const gatewayLength = maxY - gatewayStart;
+      const gatewayLength = y - gatewayStart;
       const midY = gatewayStart + Math.floor(gatewayLength / 2);
 
+      gatewayStart = -1;
       const tile = this.miniMap.ref(x, midY);
       gateways.push({
         id: currentId++,
@@ -470,17 +461,50 @@ class GatewayGraphBuilder {
       });
     }
 
+    for (let y = baseY; y < maxY; y++) {
+      const tile = this.miniMap.ref(x, y);
+      const nextTile = x + 1 < this.miniMap.width() ? this.miniMap.ref(x + 1, y) : -1;
+      const isGateway = this.miniMap.isWater(tile) && nextTile !== -1 && this.miniMap.isWater(nextTile);
+
+      if (isGateway) {
+        if (gatewayStart === -1) {
+          gatewayStart = y;
+        }
+      } else {
+        tryAddGateway(y)
+      }
+    }
+
+    tryAddGateway(maxY);
+
     return gateways;
   }
 
   private findGatewaysOnHorizontalEdge(
-    y: number, baseX: number, startId: number
+    y: number, baseX: number
   ): Gateway[] {
     const gateways: Gateway[] = [];
     const maxX = Math.min(baseX + this.sectorSize, this.width);
 
     let gatewayStart = -1;
-    let currentId = startId;
+    let currentId = this.nextGatewayId;
+
+    const tryAddGateway = (x: number) => {
+      if (gatewayStart === -1) return
+
+      const gatewayLength = x - gatewayStart;
+      const midX = gatewayStart + Math.floor(gatewayLength / 2);
+
+      gatewayStart = -1;
+      const tile = this.miniMap.ref(midX, y);
+      gateways.push({
+        id: currentId++,
+        x: midX,
+        y: y,
+        tile: tile,
+        componentId: getWaterComponentId(this.miniMap, tile)
+      });
+    }
 
     for (let x = baseX; x < maxX; x++) {
       const tile = this.miniMap.ref(x, y);
@@ -492,36 +516,11 @@ class GatewayGraphBuilder {
           gatewayStart = x;
         }
       } else {
-        if (gatewayStart !== -1) {
-          const gatewayLength = x - gatewayStart;
-          const midX = gatewayStart + Math.floor(gatewayLength / 2);
-
-          gatewayStart = -1;
-          const tile = this.miniMap.ref(midX, y);
-          gateways.push({
-            id: currentId++,
-            x: midX,
-            y: y,
-            tile: tile,
-            componentId: getWaterComponentId(this.miniMap, tile)
-          });
-        }
+        tryAddGateway(x);
       }
     }
 
-    if (gatewayStart !== -1) {
-      const gatewayLength = maxX - gatewayStart;
-      const midX = gatewayStart + Math.floor(gatewayLength / 2);
-
-      const tile = this.miniMap.ref(midX, y);
-      gateways.push({
-        id: currentId++,
-        x: midX,
-        y: y,
-        tile: tile,
-        componentId: getWaterComponentId(this.miniMap, tile)
-      });
-    }
+    tryAddGateway(maxX);
 
     return gateways;
   }
@@ -529,95 +528,142 @@ class GatewayGraphBuilder {
   private buildSectorConnections(sector: Sector): void {
     const gateways = sector.gateways;
 
+    // Calculate bounding box once for this sector
+    const sectorMinX = sector.x * this.sectorSize;
+    const sectorMinY = sector.y * this.sectorSize;
+    const sectorMaxX = Math.min(this.width - 1, sectorMinX + this.sectorSize - 1);
+    const sectorMaxY = Math.min(this.height - 1, sectorMinY + this.sectorSize - 1);
+
     for (let i = 0; i < gateways.length; i++) {
+      const fromGateway = gateways[i];
+
+      // Build list of target gateways (only those we haven't processed yet)
+      const targetGateways: Gateway[] = [];
       for (let j = i + 1; j < gateways.length; j++) {
-        // Skip if gateways are in different water components (can't reach each other)
+        // Skip if gateways are in different water components
         if (gateways[i].componentId !== gateways[j].componentId) {
           continue;
         }
 
-        // Skip if Manhattan distance exceeds reasonable limit
-        // Allow up to 3×SECTOR_SIZE for graph connectivity
-        const dx = Math.abs(gateways[i].x - gateways[j].x);
-        const dy = Math.abs(gateways[i].y - gateways[j].y);
-        const manhattanDist = dx + dy;
-        const maxDistance = this.sectorSize * 3;
+        targetGateways.push(gateways[j]);
+      }
 
-        if (manhattanDist > maxDistance) {
-          continue;
+      if (targetGateways.length === 0) {
+        continue;
+      }
+
+      // Single BFS to find all reachable target gateways
+      const reachableGateways = this.findAllReachableGatewaysInBounds(
+        fromGateway.tile,
+        targetGateways,
+        sectorMinX,
+        sectorMaxX,
+        sectorMinY,
+        sectorMaxY
+      );
+
+      // Create edges for all reachable gateways
+      for (const [targetId, cost] of reachableGateways.entries()) {
+        if (!this.edges.has(fromGateway.id)) {
+          this.edges.set(fromGateway.id, []);
         }
 
-        const cost = this.findLocalPathCost(gateways[i].tile, gateways[j].tile);
-
-        if (cost === -1) {
-          continue;
+        if (!this.edges.has(targetId)) {
+          this.edges.set(targetId, []);
         }
 
-        const edge1: Edge = {
-          from: gateways[i].id,
-          to: gateways[j].id,
-          cost: cost
-        };
+        // Check for existing edges - gateways may live in 2 sectors, keep only cheaper connection
+        const existingEdgeFromI = this.edges.get(fromGateway.id)!.find(e => e.to === targetId);
+        const existingEdgeFromJ = this.edges.get(targetId)!.find(e => e.to === fromGateway.id);
 
-        const edge2: Edge = {
-          from: gateways[j].id,
-          to: gateways[i].id,
-          cost: cost
-        };
+        // If edge doesn't exist or new cost is cheaper, update it
+        if (!existingEdgeFromI || cost < existingEdgeFromI.cost) {
+          const edge1: Edge = {
+            from: fromGateway.id,
+            to: targetId,
+            cost: cost
+          };
 
-        sector.edges.push(edge1, edge2);
+          const edge2: Edge = {
+            from: targetId,
+            to: fromGateway.id,
+            cost: cost
+          };
 
-        if (!this.edges.has(gateways[i].id)) {
-          this.edges.set(gateways[i].id, []);
+          // Add to sector edges for tracking
+          sector.edges.push(edge1, edge2);
+
+          if (existingEdgeFromI) {
+            const idx1 = this.edges.get(fromGateway.id)!.indexOf(existingEdgeFromI);
+            this.edges.get(fromGateway.id)![idx1] = edge1;
+
+            const idx2 = this.edges.get(targetId)!.indexOf(existingEdgeFromJ!);
+            this.edges.get(targetId)![idx2] = edge2;
+          } else {
+            this.edges.get(fromGateway.id)!.push(edge1);
+            this.edges.get(targetId)!.push(edge2);
+          }
         }
-
-        if (!this.edges.has(gateways[j].id)) {
-          this.edges.set(gateways[j].id, []);
-        }
-
-        this.edges.get(gateways[i].id)!.push(edge1);
-        this.edges.get(gateways[j].id)!.push(edge2);
       }
     }
   }
 
-  private findLocalPathCost(from: TileRef, to: TileRef): number {
-    // Allow up to 3×SECTOR_SIZE for graph connectivity
-    const maxDistance = this.sectorSize * 3;
+  private findAllReachableGatewaysInBounds(
+    from: TileRef,
+    targetGateways: Gateway[],
+    minX: number,
+    maxX: number,
+    minY: number,
+    maxY: number
+  ): Map<number, number> {
+    const fromX = this.miniMap.x(from);
+    const fromY = this.miniMap.y(from);
 
-    const result = this.fastBFS.search(
+    // Create a map of tile positions to gateway IDs for fast lookup
+    const tileToGateway = new Map<TileRef, number>();
+    let maxManhattanDist = 0;
+
+    for (const gateway of targetGateways) {
+      tileToGateway.set(gateway.tile, gateway.id);
+      const dx = Math.abs(gateway.x - fromX);
+      const dy = Math.abs(gateway.y - fromY);
+      maxManhattanDist = Math.max(maxManhattanDist, dx + dy);
+    }
+
+    const maxDistance = maxManhattanDist * 3; // Allow path deviation
+    const reachable = new Map<number, number>();
+    let foundCount = 0;
+
+    this.fastBFS.search(
       this.miniMap, from, maxDistance,
       (tile, dist) => {
-        if (tile === to) {
-          return dist;
+        const x = this.miniMap.x(tile);
+        const y = this.miniMap.y(tile);
+
+        // Reject if outside of bounding box
+        const isStartOrEnd = tile === from || tileToGateway.has(tile);
+        if (!isStartOrEnd && (x < minX || x > maxX || y < minY || y > maxY)) {
+          return null;
         }
-        return null;
+
+        // Check if this tile is one of our target gateways
+        const gatewayId = tileToGateway.get(tile);
+
+        if (gatewayId !== undefined) {
+          reachable.set(gatewayId, dist);
+          foundCount++;
+
+          // Early exit if we've found all target gateways
+          if (foundCount === targetGateways.length) {
+            return dist; // Return to stop BFS
+          }
+        }
       }
     );
 
-    return result ?? -1;
-  }
-
-  // Static factory method for backward compatibility
-  static build(
-    game: Game,
-    sectorSize: number = GatewayGraphBuilder.SECTOR_SIZE,
-    debug: boolean = false
-  ): GatewayGraph {
-    const builder = new GatewayGraphBuilder(game, sectorSize);
-    return builder.build(debug);
+    return reachable;
   }
 }
-
-type LocalPathStats = {
-  boundedRegionSize: number;  // Total nodes in bounding box
-  actualNodesVisited: number; // Actual nodes visited by A*
-  astarTime: number;
-  upscaleTime: number;
-  totalTime: number;
-  usedFallback: boolean;  // Whether search exceeded tier limits (should be rare)
-  tierUsed?: number;  // Which tier was used (0, 1, or 2)
-};
 
 export class NavigationSatellite {
   private graph!: GatewayGraph;
@@ -628,14 +674,11 @@ export class NavigationSatellite {
   private localAStarTier2!: FastAStar; // 192×192 = 36,864 nodes
 
   public debugInfo: PathDebugInfo | null = null;
-  public localPathStats: LocalPathStats[] = []; // Instrumentation data
 
   constructor(
     private game: Game,
     private options: {
       cachePaths?: boolean,
-      instrumentLocalPaths?: boolean,
-      localPathMargin?: number  // Margin for bounded local paths (in miniMap tiles)
     } = {}
   ) {}
 
@@ -668,13 +711,47 @@ export class NavigationSatellite {
     }
 
     if (debug) {
+      // Collect all edges with their paths for visualization
+      const allEdges: Array<{
+        fromId: number;
+        toId: number;
+        from: TileRef;
+        to: TileRef;
+        cost: number;
+        path: TileRef[] | null;
+      }> = [];
+
+      for (const [fromId, edges] of this.graph.edges.entries()) {
+        const fromGw = this.graph.getGateway(fromId);
+        if (!fromGw) continue;
+
+        for (const edge of edges) {
+          const toGw = this.graph.getGateway(edge.to);
+          if (!toGw) continue;
+
+          // Only add each edge once (not both directions)
+          // Include self-loops (fromId === edge.to) for debugging
+          if (fromId <= edge.to) {
+            allEdges.push({
+              fromId: fromId,
+              toId: edge.to,
+              from: fromGw.tile,
+              to: toGw.tile,
+              cost: edge.cost,
+              path: edge.path ?? null
+            });
+          }
+        }
+      }
+
       this.debugInfo = {
         gatewayPath: null,
         initialPath: null,
         smoothPath: null,
-        graph: { 
-          sectorSize: this.graph.sectorSize, 
-          gateways: this.graph.getAllGateways().map(gw => gw.tile)
+        graph: {
+          sectorSize: this.graph.sectorSize,
+          gateways: this.graph.getAllGateways().map(gw => ({ id: gw.id, tile: gw.tile })),
+          edges: allEdges
         },
         timings: {},
       };
@@ -758,7 +835,11 @@ export class NavigationSatellite {
 
     if (debug) {
       this.debugInfo!.timings.findGatewayPath = findGatewayPathMeasure.duration;
-      this.debugInfo!.gatewayPath = gatewayPath;
+
+      this.debugInfo!.gatewayPath = gatewayPath ? gatewayPath.map(gwId => {
+        const gw = this.graph.getGateway(gwId);
+        return gw ? gw.tile : -1;
+      }).filter(tile => tile !== -1) : null;
     }
 
     if (!gatewayPath) {
@@ -795,7 +876,6 @@ export class NavigationSatellite {
       const fromGwId = gatewayPath[i];
       const toGwId = gatewayPath[i + 1];
 
-      // Get the connection
       const edges = this.graph.getEdges(fromGwId);
       const edge = edges.find(edge => edge.to === toGwId);
 
@@ -909,8 +989,6 @@ export class NavigationSatellite {
           return gateway;
         }
       }
-
-      return null;
     });
   }
 
@@ -927,8 +1005,6 @@ export class NavigationSatellite {
     to: TileRef,
     maxIterations: number = 10000
   ): TileRef[] | null {
-    const startTime = this.options.instrumentLocalPaths ? performance.now() : 0;
-
     const map = this.game.map();
     const miniMap = this.game.miniMap();
 
@@ -937,13 +1013,14 @@ export class NavigationSatellite {
       Math.floor(map.x(from) / 2),
       Math.floor(map.y(from) / 2)
     );
+
     const miniTo = miniMap.ref(
       Math.floor(map.x(to) / 2),
       Math.floor(map.y(to) / 2)
     );
 
     // Create bounded adapter with configurable margin (default: SECTOR_SIZE = 32 tiles)
-    const margin = this.options.localPathMargin ?? GatewayGraphBuilder.SECTOR_SIZE;
+    const margin = GatewayGraphBuilder.SECTOR_SIZE;
     const adapter = new BoundedGameMapAdapter(miniMap, miniFrom, miniTo, margin);
 
     // Select appropriate tier based on bounded region size
@@ -952,23 +1029,11 @@ export class NavigationSatellite {
     const useTier2 = adapter.numNodes > tier1Limit;
 
     if (adapter.numNodes > tier2Limit) {
-      // Region exceeds tier limits - fallback
-      if (this.options.instrumentLocalPaths) {
-        this.localPathStats.push({
-          boundedRegionSize: adapter.numNodes,
-          actualNodesVisited: 0,
-          astarTime: 0,
-          upscaleTime: 0,
-          totalTime: 0,
-          usedFallback: true,
-          tierUsed: undefined
-        });
-      }
-      return null; // Should never happen with margin=32
+      // Should never happen with margin=32
+      return null;
     }
 
     const selectedAStar = useTier2 ? this.localAStarTier2 : this.localAStarTier1;
-    const tierUsed = useTier2 ? 2 : 1;
 
     // Convert to local node IDs
     const startNode = adapter.tileToNode(miniFrom);
@@ -979,9 +1044,7 @@ export class NavigationSatellite {
     }
 
     // Run FastAStar on bounded region using selected tier
-    const astarStart = this.options.instrumentLocalPaths ? performance.now() : 0;
     const path = selectedAStar.search(startNode, goalNode, adapter, maxIterations);
-    const astarEnd = this.options.instrumentLocalPaths ? performance.now() : 0;
 
     if (!path) {
       return null;
@@ -991,22 +1054,7 @@ export class NavigationSatellite {
     const miniPath = path.map((node: number) => adapter.nodeToTile(node));
 
     // Upscale from miniMap to full map (same logic as MiniAStar)
-    const upscaleStart = this.options.instrumentLocalPaths ? performance.now() : 0;
     const result = this.upscalePathToFullMap(miniPath, from, to);
-    const upscaleEnd = this.options.instrumentLocalPaths ? performance.now() : 0;
-
-    // Record instrumentation data
-    if (this.options.instrumentLocalPaths) {
-      this.localPathStats.push({
-        boundedRegionSize: adapter.numNodes,
-        actualNodesVisited: selectedAStar.lastSearchNodesVisited,
-        astarTime: astarEnd - astarStart,
-        upscaleTime: upscaleEnd - upscaleStart,
-        totalTime: upscaleEnd - startTime,
-        usedFallback: false,
-        tierUsed: tierUsed
-      });
-    }
 
     return result;
   }
