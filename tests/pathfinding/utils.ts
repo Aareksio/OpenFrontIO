@@ -1,6 +1,13 @@
-import { Game } from '../../src/core/game/Game';
+import fs from 'fs';
+import path from 'path';
+import { Game, Difficulty, GameMapSize, GameMapType, GameMode, GameType, PlayerInfo } from '../../src/core/game/Game';
 import { TileRef } from '../../src/core/game/GameMap';
 import { PathFinderMiniAdapter, PathfindingInterface, NavigationSatelliteAdapter, VimacsTileToShoreAdapter, VimacsTileToWaterAdapter } from './pathfinding-interface';
+import { createGame } from '../../src/core/game/GameImpl';
+import { genTerrainFromBin, MapManifest } from '../../src/core/game/TerrainMapLoader';
+import { UserSettings } from '../../src/core/game/UserSettings';
+import { GameConfig } from '../../src/core/Schemas';
+import { TestConfig } from '../util/TestConfig';
 
 export const DEFAULT_ITERATIONS = 100
 
@@ -138,11 +145,71 @@ export function printSeparator(
 }
 
 export function printHeader(
-  title: string, 
+  title: string,
   width: number = 80
 ): void {
   printSeparator(width);
   console.log(title);
   printSeparator(width);
   console.log('');
+}
+
+export async function setupFromPath(
+  mapDirectory: string,
+  mapName: string,
+  gameConfig: Partial<GameConfig> = {},
+  humans: PlayerInfo[] = [],
+): Promise<Game> {
+  // Suppress console.debug for tests
+  console.debug = () => {};
+
+  // Load map files from specified directory
+  const mapBinPath = path.join(mapDirectory, mapName, 'map.bin');
+  const miniMapBinPath = path.join(mapDirectory, mapName, 'map4x.bin');
+  const manifestPath = path.join(mapDirectory, mapName, 'manifest.json');
+
+  // Check if files exist
+  if (!fs.existsSync(mapBinPath)) {
+    throw new Error(`Map not found: ${mapBinPath}`);
+  }
+  
+  if (!fs.existsSync(miniMapBinPath)) {
+    throw new Error(`Mini map not found: ${miniMapBinPath}`);
+  }
+
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error(`Manifest not found: ${manifestPath}`);
+  }
+
+  const mapBinBuffer = fs.readFileSync(mapBinPath);
+  const miniMapBinBuffer = fs.readFileSync(miniMapBinPath);
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) satisfies MapManifest;
+
+  const gameMap = await genTerrainFromBin(manifest.map, mapBinBuffer);
+  const miniGameMap = await genTerrainFromBin(manifest.map4x, miniMapBinBuffer);
+
+  // Configure the game
+  const config = new TestConfig(
+    new (await import('../util/TestServerConfig')).TestServerConfig(),
+    {
+      gameMap: GameMapType.Asia,
+      gameMapSize: GameMapSize.Normal,
+      gameMode: GameMode.FFA,
+      gameType: GameType.Singleplayer,
+      difficulty: Difficulty.Medium,
+      disableNations: false,
+      donateGold: false,
+      donateTroops: false,
+      bots: 0,
+      infiniteGold: false,
+      infiniteTroops: false,
+      instantBuild: false,
+      randomSpawn: false,
+      ...gameConfig,
+    },
+    new UserSettings(),
+    false,
+  );
+
+  return createGame(humans, [], gameMap, miniGameMap, config);
 }
