@@ -2,13 +2,8 @@
 // Works with node IDs represented as integers (0 to numNodes-1)
 
 export interface FastAStarAdapter {
-  // Get neighbors of a node
   getNeighbors(node: number): number[];
-
-  // Get cost to move from one node to another
   getCost(from: number, to: number): number;
-
-  // Heuristic estimate from node to goal
   heuristic(node: number, goal: number): number;
 }
 

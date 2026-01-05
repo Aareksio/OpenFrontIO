@@ -515,8 +515,9 @@ export class GatewayGraphBuilder {
     let foundCount = 0;
 
     this.fastBFS.search(
-      this.miniMap, from, maxDistance,
-      (tile, dist) => {
+      this.miniMap.width(), this.miniMap.height(), from, maxDistance,
+      (tile: number) => this.miniMap.isWater(tile),
+      (tile: number, dist: number) => {
         const x = this.miniMap.x(tile);
         const y = this.miniMap.y(tile);
 
@@ -539,7 +540,6 @@ export class GatewayGraphBuilder {
           }
         }
       },
-      (tile) => this.miniMap.isWater(tile)
     );
 
     return reachable;

@@ -3,7 +3,7 @@ import { TileRef } from '../../../game/GameMap';
 import { FastBFS } from './FastBFS';
 import { FastAStar } from './FastAStar';
 import { GatewayGraph, GatewayGraphBuilder, Gateway } from './GatewayGraph';
-import { FastGatewayGraphAdapter, BoundedGameMapAdapter } from './FastAStarAdapters';
+import { GatewayGraphAdapter, BoundedGameMapAdapter } from './FastAStarAdapter';
 
 type PathDebugInfo = {
   gatewayPath: TileRef[] | null;
@@ -375,29 +375,33 @@ export class NavigationSatellite {
     // Search space is bounded by sector bounds, so maxDistance can be large
     const maxDistance = sectorSize * sectorSize;
 
-    return this.fastBFS.search(miniMap, miniFrom, maxDistance, (tile: TileRef, _dist: number) => {
-      const tileX = miniMap.x(tile);
-      const tileY = miniMap.y(tile);
+    return this.fastBFS.search(
+      miniMap.width(), miniMap.height(), miniFrom, maxDistance, 
+      (tile: TileRef) => miniMap.isWater(tile),
+      (tile: TileRef, _dist: number) => {
+        const tileX = miniMap.x(tile);
+        const tileY = miniMap.y(tile);
 
-      // Check if any candidate gateway is at this position first
-      for (const gateway of candidateGateways) {
-        if (gateway.x === tileX && gateway.y === tileY) {
-          return gateway;
+        // Check if any candidate gateway is at this position first
+        for (const gateway of candidateGateways) {
+          if (gateway.x === tileX && gateway.y === tileY) {
+            return gateway;
+          }
         }
-      }
 
-      // Reject non-gateway tiles outside the sector bounds
-      if (tileX < minX || tileX > maxX || tileY < minY || tileY > maxY) {
-        return null;
-      }
-    }, (tile) => miniMap.isWater(tile));
+        // Reject non-gateway tiles outside the sector bounds
+        if (tileX < minX || tileX > maxX || tileY < minY || tileY > maxY) {
+          return null;
+        }
+      },
+    );
   }
 
   private findGatewayPath(
     fromGatewayId: number,
     toGatewayId: number
   ): number[] | null {
-    const adapter = new FastGatewayGraphAdapter(this.graph);
+    const adapter = new GatewayGraphAdapter(this.graph);
     return this.gatewayAStar.search(fromGatewayId, toGatewayId, adapter, 100000);
   }
 
