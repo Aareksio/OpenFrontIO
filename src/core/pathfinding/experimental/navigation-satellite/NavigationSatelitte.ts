@@ -17,6 +17,8 @@ interface Edge {
   to: number;
   cost: number;
   path?: TileRef[];
+  sectorX: number;
+  sectorY: number;
 }
 
 interface Sector {
@@ -132,26 +134,23 @@ class BoundedGameMapAdapter implements FastAStarAdapter {
   private readonly width: number;
   private readonly height: number;
   readonly numNodes: number;
+  private readonly startTile: TileRef;
+  private readonly goalTile: TileRef;
 
   constructor(
     private miniMap: GameMap,
     startTile: TileRef,
     goalTile: TileRef,
-    margin: number
+    bounds: { minX: number; maxX: number; minY: number; maxY: number }
   ) {
-    const startX = miniMap.x(startTile);
-    const startY = miniMap.y(startTile);
-    const goalX = miniMap.x(goalTile);
-    const goalY = miniMap.y(goalTile);
+    this.startTile = startTile;
+    this.goalTile = goalTile;
 
-    // Calculate bounding box with margin
-    this.minX = Math.max(0, Math.min(startX, goalX) - margin);
-    this.minY = Math.max(0, Math.min(startY, goalY) - margin);
-    const maxX = Math.min(miniMap.width(), Math.max(startX, goalX) + margin);
-    const maxY = Math.min(miniMap.height(), Math.max(startY, goalY) + margin);
+    this.minX = bounds.minX;
+    this.minY = bounds.minY;
+    this.width = bounds.maxX - bounds.minX + 1;
+    this.height = bounds.maxY - bounds.minY + 1;
 
-    this.width = maxX - this.minX;
-    this.height = maxY - this.minY;
     this.numNodes = this.width * this.height;
   }
 
@@ -160,11 +159,17 @@ class BoundedGameMapAdapter implements FastAStarAdapter {
     const x = this.miniMap.x(tile) - this.minX;
     const y = this.miniMap.y(tile) - this.minY;
 
-    if (x < 0 || x >= this.width || y < 0 || y >= this.height) {
+    // Allow start and goal tiles to be outside bounds (matching graph building behavior)
+    const isStartOrGoal = tile === this.startTile || tile === this.goalTile;
+    if (!isStartOrGoal && (x < 0 || x >= this.width || y < 0 || y >= this.height)) {
       return -1; // Outside bounds
     }
 
-    return y * this.width + x;
+    // Clamp coordinates for start/goal tiles that are outside bounds
+    const clampedX = Math.max(0, Math.min(this.width - 1, x));
+    const clampedY = Math.max(0, Math.min(this.height - 1, y));
+
+    return clampedY * this.width + clampedX;
   }
 
   // Convert local node ID to global TileRef
@@ -581,13 +586,17 @@ class GatewayGraphBuilder {
           const edge1: Edge = {
             from: fromGateway.id,
             to: targetId,
-            cost: cost
+            cost: cost,
+            sectorX: sector.x,
+            sectorY: sector.y
           };
 
           const edge2: Edge = {
             from: targetId,
             to: fromGateway.id,
-            cost: cost
+            cost: cost,
+            sectorX: sector.x,
+            sectorY: sector.y
           };
 
           // Add to sector edges for tracking
@@ -669,9 +678,9 @@ export class NavigationSatellite {
   private graph!: GatewayGraph;
   private initialized = false;
   private fastBFS!: FastBFS;
-  private fastAStar!: FastAStar;
-  private localAStarTier1!: FastAStar; // 128×128 = 16,384 nodes
-  private localAStarTier2!: FastAStar; // 192×192 = 36,864 nodes
+  private gatewayAStar!: FastAStar;
+  private localAStar!: FastAStar;
+  private localAStarMultiSector!: FastAStar;
 
   public debugInfo: PathDebugInfo | null = null;
 
@@ -690,13 +699,19 @@ export class NavigationSatellite {
     this.fastBFS = new FastBFS(miniMap.width() * miniMap.height());
 
     const gatewayCount = Math.max(this.graph.getAllGateways().length);
-    this.fastAStar = new FastAStar(gatewayCount);
+    this.gatewayAStar = new FastAStar(gatewayCount);
 
-    // Pre-allocate tiered FastAStar instances for local pathfinding
-    // Tier 1: 128×128 = 16,384 nodes (handles 99.95% of searches)
-    // Tier 2: 192×192 = 36,864 nodes (handles remaining 0.05%)
-    this.localAStarTier1 = new FastAStar(128 * 128);
-    this.localAStarTier2 = new FastAStar(192 * 192);
+    // Fixed-size FastAStar for sector-bounded local pathfinding
+    // Single sector: 32×32 = 1,024 nodes
+    const sectorSize = GatewayGraphBuilder.SECTOR_SIZE;
+    const maxLocalNodes = sectorSize * sectorSize; // 1,024 nodes
+    this.localAStar = new FastAStar(maxLocalNodes);
+
+    // Multi-sector FastAStar for cross-sector pathfinding (same gateway, different sectors)
+    // 3×3 sectors: 96×96 = 9,216 nodes
+    const multiSectorSize = sectorSize * 3;
+    const maxMultiSectorNodes = multiSectorSize * multiSectorSize;
+    this.localAStarMultiSector = new FastAStar(maxMultiSectorNodes);
 
     this.initialized = true;
   }
@@ -759,9 +774,15 @@ export class NavigationSatellite {
 
     const dist = this.game.manhattanDist(from, to);
 
-    if (dist < 500) {
+    // Early exit for very short distances that fit within multi-sector range
+    if (dist <= this.graph.sectorSize) {
       performance.mark('navsat:findPath:earlyExitLocalPath:start');
-      const localPath = this.findLocalPath(from, to, 2000);
+      const map = this.game.map();
+      const startMiniX = Math.floor(map.x(from) / 2);
+      const startMiniY = Math.floor(map.y(from) / 2);
+      const sectorX = Math.floor(startMiniX / this.graph.sectorSize);
+      const sectorY = Math.floor(startMiniY / this.graph.sectorSize);
+      const localPath = this.findLocalPath(from, to, sectorX, sectorY, 2000, true);
       performance.mark('navsat:findPath:earlyExitLocalPath:end');
       const measure = performance.measure(
         'navsat:findPath:earlyExitLocalPath',
@@ -817,11 +838,13 @@ export class NavigationSatellite {
     }
 
     if (startGateway.id === endGateway.id) {
-      if (debug) { 
-        console.log(`[DEBUG] Start and end gateways are the same (ID=${startGateway.id}), finding local path`);
+      if (debug) {
+        console.log(`[DEBUG] Start and end gateways are the same (ID=${startGateway.id}), finding local path with multi-sector search`);
       }
 
-      return this.findLocalPath(from, to);
+      const sectorX = Math.floor(startGateway.x / this.graph.sectorSize);
+      const sectorY = Math.floor(startGateway.y / this.graph.sectorSize);
+      return this.findLocalPath(from, to, sectorX, sectorY, 10000, true);
     }
 
     performance.mark('navsat:findPath:findGatewayPath:start');
@@ -863,7 +886,13 @@ export class NavigationSatellite {
     // 1. Find path from start to first gateway
     const firstGateway = this.graph.getGateway(gatewayPath[0])!;
     const firstGatewayTile = map.ref(miniMap.x(firstGateway.tile) * 2, miniMap.y(firstGateway.tile) * 2);
-    const startSegment = this.findLocalPath(from, firstGatewayTile);
+
+    // Use start position's sector with multi-sector search (gateway may be on border)
+    const startMiniX = Math.floor(map.x(from) / 2);
+    const startMiniY = Math.floor(map.y(from) / 2);
+    const startSectorX = Math.floor(startMiniX / this.graph.sectorSize);
+    const startSectorY = Math.floor(startMiniY / this.graph.sectorSize);
+    const startSegment = this.findLocalPath(from, firstGatewayTile, startSectorX, startSectorY);
 
     if (!startSegment) {
       return null;
@@ -894,7 +923,7 @@ export class NavigationSatellite {
       const fromTile = map.ref(miniMap.x(fromGw.tile) * 2, miniMap.y(fromGw.tile) * 2);
       const toTile = map.ref(miniMap.x(toGw.tile) * 2, miniMap.y(toGw.tile) * 2);
 
-      const segmentPath = this.findLocalPath(fromTile, toTile);
+      const segmentPath = this.findLocalPath(fromTile, toTile, edge.sectorX, edge.sectorY);
 
       if (!segmentPath) {
         return null;
@@ -912,7 +941,13 @@ export class NavigationSatellite {
     // 3. Find path from last gateway to end
     const lastGateway = this.graph.getGateway(gatewayPath[gatewayPath.length - 1])!;
     const lastGatewayTile = map.ref(miniMap.x(lastGateway.tile) * 2, miniMap.y(lastGateway.tile) * 2);
-    const endSegment = this.findLocalPath(lastGatewayTile, to);
+
+    // Use end position's sector with multi-sector search (gateway may be on border)
+    const endMiniX = Math.floor(map.x(to) / 2);
+    const endMiniY = Math.floor(map.y(to) / 2);
+    const endSectorX = Math.floor(endMiniX / this.graph.sectorSize);
+    const endSectorY = Math.floor(endMiniY / this.graph.sectorSize);
+    const endSegment = this.findLocalPath(lastGatewayTile, to, endSectorX, endSectorY);
 
     if (!endSegment) {
       return null;
@@ -963,31 +998,47 @@ export class NavigationSatellite {
     const miniY = Math.floor(y / 2);
     const miniFrom = miniMap.ref(miniX, miniY);
 
-    // Check gateways in nearby sectors (using miniMap coordinates)
+    // Check gateways in the tile's own sector (using miniMap coordinates)
     const sectorX = Math.floor(miniX / this.graph.sectorSize);
     const sectorY = Math.floor(miniY / this.graph.sectorSize);
 
-    // Collect all candidate gateways from nearby sectors
-    const candidateGateways = this.graph.getNearbySectorGateways(sectorX, sectorY);
+    // Calculate single sector bounds
+    const sectorSize = this.graph.sectorSize;
+    const minX = sectorX * sectorSize;
+    const minY = sectorY * sectorSize;
+    const maxX = Math.min(miniMap.width() - 1, minX + sectorSize - 1);
+    const maxY = Math.min(miniMap.height() - 1, minY + sectorSize - 1);
 
+    // Get gateways from the tile's own sector only (includes border gateways)
+    const sector = this.graph.getSector(sectorX, sectorY);
+
+    if (!sector) {
+      return null;
+    }
+
+    const candidateGateways = sector.gateways;
     if (candidateGateways.length === 0) {
       return null;
     }
 
     // Use BFS to find the nearest reachable gateway (by water path distance)
-    // This ensures we only find gateways in the same water region
-    const maxDistance = this.graph.sectorSize * 24;
+    // Search space is bounded by sector bounds, so maxDistance can be large
+    const maxDistance = sectorSize * sectorSize;
 
     return this.fastBFS.search(miniMap, miniFrom, maxDistance, (tile: TileRef, _dist: number) => {
-      // Check if any candidate gateway is at this position
-      // Gateways are now on miniMap, so compare directly
       const tileX = miniMap.x(tile);
       const tileY = miniMap.y(tile);
 
+      // Check if any candidate gateway is at this position first
       for (const gateway of candidateGateways) {
         if (gateway.x === tileX && gateway.y === tileY) {
           return gateway;
         }
+      }
+
+      // Reject non-gateway tiles outside the sector bounds
+      if (tileX < minX || tileX > maxX || tileY < minY || tileY > maxY) {
+        return null;
       }
     });
   }
@@ -997,13 +1048,16 @@ export class NavigationSatellite {
     toGatewayId: number
   ): number[] | null {
     const adapter = new FastGatewayGraphAdapter(this.graph);
-    return this.fastAStar.search(fromGatewayId, toGatewayId, adapter, 100000);
+    return this.gatewayAStar.search(fromGatewayId, toGatewayId, adapter, 100000);
   }
 
   private findLocalPath(
     from: TileRef,
     to: TileRef,
-    maxIterations: number = 10000
+    sectorX: number,
+    sectorY: number,
+    maxIterations: number = 10000,
+    multiSector: boolean = false
   ): TileRef[] | null {
     const map = this.game.map();
     const miniMap = this.game.miniMap();
@@ -1019,21 +1073,29 @@ export class NavigationSatellite {
       Math.floor(map.y(to) / 2)
     );
 
-    // Create bounded adapter with configurable margin (default: SECTOR_SIZE = 32 tiles)
-    const margin = GatewayGraphBuilder.SECTOR_SIZE;
-    const adapter = new BoundedGameMapAdapter(miniMap, miniFrom, miniTo, margin);
+    // Calculate sector bounds
+    const sectorSize = this.graph.sectorSize;
 
-    // Select appropriate tier based on bounded region size
-    const tier1Limit = 128 * 128; // 16,384 nodes
-    const tier2Limit = 192 * 192; // 36,864 nodes
-    const useTier2 = adapter.numNodes > tier1Limit;
+    let minX: number;
+    let minY: number;
+    let maxX: number;
+    let maxY: number;
 
-    if (adapter.numNodes > tier2Limit) {
-      // Should never happen with margin=32
-      return null;
+    if (multiSector) {
+      // 3×3 sectors centered on the starting sector
+      minX = Math.max(0, (sectorX - 1) * sectorSize);
+      minY = Math.max(0, (sectorY - 1) * sectorSize);
+      maxX = Math.min(miniMap.width() - 1, (sectorX + 2) * sectorSize - 1);
+      maxY = Math.min(miniMap.height() - 1, (sectorY + 2) * sectorSize - 1);
+    } else {
+      // Single sector
+      minX = sectorX * sectorSize;
+      minY = sectorY * sectorSize;
+      maxX = Math.min(miniMap.width() - 1, minX + sectorSize - 1);
+      maxY = Math.min(miniMap.height() - 1, minY + sectorSize - 1);
     }
 
-    const selectedAStar = useTier2 ? this.localAStarTier2 : this.localAStarTier1;
+    const adapter = new BoundedGameMapAdapter(miniMap, miniFrom, miniTo, { minX, maxX, minY, maxY });
 
     // Convert to local node IDs
     const startNode = adapter.tileToNode(miniFrom);
@@ -1043,7 +1105,10 @@ export class NavigationSatellite {
       return null; // Start or goal outside bounds
     }
 
-    // Run FastAStar on bounded region using selected tier
+    // Choose the appropriate FastAStar buffer based on search area
+    const selectedAStar = multiSector ? this.localAStarMultiSector : this.localAStar;
+
+    // Run FastAStar on bounded region
     const path = selectedAStar.search(startNode, goalNode, adapter, maxIterations);
 
     if (!path) {
