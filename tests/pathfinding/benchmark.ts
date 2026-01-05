@@ -194,12 +194,13 @@ async function main() {
 
   const isSynthetic = args.includes("--synthetic");
   const isAll = args.includes("--all");
+  const isSilent = args.includes("--silent");
   const nonFlagArgs = args.filter((arg) => !arg.startsWith("--"));
 
   if (isSynthetic) {
     if (isAll) {
       // Run all synthetic scenarios
-      const adapterName = nonFlagArgs[0] || "NavSat";
+      const adapterName = nonFlagArgs[0] || DEFAULT_ADAPTER;
 
       // Find all synthetic scenario files
       const scenarioFiles = readdirSync(syntheticScenariosDir)
@@ -230,7 +231,7 @@ async function main() {
       const adapterName = nonFlagArgs[1] || DEFAULT_ADAPTER;
       const scenarioName = `synthetic/${mapName}`;
 
-      await runScenario(adapterName, scenarioName);
+      await runScenario(adapterName, scenarioName, { silent: isSilent });
     } else {
       console.error("Error: --synthetic requires a map name or --all flag");
       printUsage();
@@ -241,7 +242,7 @@ async function main() {
     const scenarioName = nonFlagArgs[0] || DEFAULT_SCENARIO;
     const adapterName = nonFlagArgs[1] || DEFAULT_ADAPTER;
 
-    await runScenario(adapterName, scenarioName);
+    await runScenario(adapterName, scenarioName, { silent: isSilent });
   }
 }
 

@@ -15,8 +15,8 @@ export class WaterComponent {
   private componentIds: Uint8Array | Uint16Array | null = null;
 
   constructor(
-    private readonly map: GameMap, 
-    private readonly accessTerrainDirectly: boolean = false
+    private readonly map: GameMap,
+    private readonly accessTerrainDirectly: boolean = true,
   ) {
     this.width = map.width();
     this.height = map.height();
