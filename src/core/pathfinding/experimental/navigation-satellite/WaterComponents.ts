@@ -1,74 +1,103 @@
 import { GameMap, TileRef } from '../../../game/GameMap';
 
-// Terrain (water/land) is immutable for a game map, so this can be cached forever per instance.
-const cache = new WeakMap<GameMap, Uint32Array>();
+/**
+ * Manages water component identification using flood-fill.
+ * Pre-allocates buffers and provides explicit initialization.
+ */
+export class WaterComponent {
+  private readonly map: GameMap;
+  private readonly width: number;
+  private readonly height: number;
+  private readonly numTiles: number;
+  private readonly lastRowStart: number;
+  private readonly queue: Int32Array;
+  private componentIds: Uint32Array | null = null;
 
-export function getWaterComponentIds(gm: GameMap): Uint32Array {
-  const cached = cache.get(gm);
-  if (cached) return cached;
+  constructor(map: GameMap) {
+    this.map = map;
+    this.width = map.width();
+    this.height = map.height();
+    this.numTiles = this.width * this.height;
+    this.lastRowStart = (this.height - 1) * this.width;
+    this.queue = new Int32Array(this.numTiles);
+  }
 
-  const w = gm.width();
-  const h = gm.height();
-  const numTiles = w * h;
-  const ids = new Uint32Array(numTiles); // 0 = not-water/unassigned, 1..N = component id
+  initialize(): void {
+    const ids = new Uint32Array(this.numTiles);
+    let nextId = 0;
 
-  let nextId = 0;
-  const queue = new Int32Array(numTiles);
-  const lastRowStart = (h - 1) * w;
+    // Scan all tiles and flood-fill each unvisited water component
+    for (let start = 0; start < this.numTiles; start++) {
+      if (ids[start] !== 0 || !this.map.isWater(start)) continue;
 
-  for (let start = 0; start < numTiles; start++) {
-    if (ids[start] !== 0) continue;
-    if (!gm.isWater(start)) continue;
+      nextId++;
+      this.floodFillComponent(ids, start, nextId);
+    }
 
-    nextId++;
-    ids[start] = nextId;
+    this.componentIds = ids;
+  }
+
+  /**
+   * Flood-fill a single connected water component starting from the given tile.
+   * Uses BFS to mark all connected water tiles with the same component ID.
+   */
+  private floodFillComponent(ids: Uint32Array, start: number, componentId: number): void {
+    ids[start] = componentId;
 
     let head = 0;
     let tail = 0;
-    queue[tail++] = start;
+    this.queue[tail++] = start;
 
     while (head < tail) {
-      const node = queue[head++]!;
-      const x = node % w;
+      const node = this.queue[head++]!;
+      const x = node % this.width;
 
-      if (node >= w) {
-        const n = node - w;
-        if (ids[n] === 0 && gm.isWater(n)) {
-          ids[n] = nextId;
-          queue[tail++] = n;
+      // North
+      if (node >= this.width) {
+        const neighbor = node - this.width;
+        if (ids[neighbor] === 0 && this.map.isWater(neighbor)) {
+          ids[neighbor] = componentId;
+          this.queue[tail++] = neighbor;
         }
       }
-      if (node < lastRowStart) {
-        const s = node + w;
-        if (ids[s] === 0 && gm.isWater(s)) {
-          ids[s] = nextId;
-          queue[tail++] = s;
+
+      // South
+      if (node < this.lastRowStart) {
+        const neighbor = node + this.width;
+        if (ids[neighbor] === 0 && this.map.isWater(neighbor)) {
+          ids[neighbor] = componentId;
+          this.queue[tail++] = neighbor;
         }
       }
+
+      // West
       if (x !== 0) {
-        const wv = node - 1;
-        if (ids[wv] === 0 && gm.isWater(wv)) {
-          ids[wv] = nextId;
-          queue[tail++] = wv;
+        const neighbor = node - 1;
+        if (ids[neighbor] === 0 && this.map.isWater(neighbor)) {
+          ids[neighbor] = componentId;
+          this.queue[tail++] = neighbor;
         }
       }
-      if (x !== w - 1) {
-        const ev = node + 1;
-        if (ids[ev] === 0 && gm.isWater(ev)) {
-          ids[ev] = nextId;
-          queue[tail++] = ev;
+
+      // East
+      if (x !== this.width - 1) {
+        const neighbor = node + 1;
+        if (ids[neighbor] === 0 && this.map.isWater(neighbor)) {
+          ids[neighbor] = componentId;
+          this.queue[tail++] = neighbor;
         }
       }
     }
   }
 
-  cache.set(gm, ids);
-  return ids;
-}
-
-export function getWaterComponentId(gm: GameMap, tile: TileRef): number {
-  if (!gm.isWater(tile)) return 0;
-  const ids = getWaterComponentIds(gm);
-  return ids[tile] ?? 0;
+  /**
+   * Get the component ID for a tile.
+   * Returns 0 for land tiles or if not initialized.
+   */
+  getComponentId(tile: TileRef): number {
+    if (!this.componentIds) return 0;
+    if (!this.map.isWater(tile)) return 0;
+    return this.componentIds[tile] ?? 0;
+  }
 }
 

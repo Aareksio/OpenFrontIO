@@ -1,6 +1,6 @@
 import { Game } from '../../../game/Game';
 import { GameMap, TileRef } from '../../../game/GameMap';
-import { getWaterComponentId } from './WaterComponents';
+import { WaterComponent } from './WaterComponents';
 import { FastBFS } from './FastBFS';
 
 export interface Gateway {
@@ -90,6 +90,7 @@ export class GatewayGraphBuilder {
   private readonly sectorsX: number;
   private readonly sectorsY: number;
   private readonly fastBFS: FastBFS;
+  private readonly waterComponent: WaterComponent;
 
   // Mutable build state
   private sectors = new Map<number, Sector>();
@@ -111,6 +112,7 @@ export class GatewayGraphBuilder {
     this.sectorsX = Math.ceil(this.width / sectorSize);
     this.sectorsY = Math.ceil(this.height / sectorSize);
     this.fastBFS = new FastBFS(this.width * this.height);
+    this.waterComponent = new WaterComponent(this.miniMap);
   }
 
   build(debug: boolean): GatewayGraph {
@@ -130,28 +132,42 @@ export class GatewayGraphBuilder {
       }
     }
 
-    performance.mark('navsat:build:phase1:start');
+    // Initialize water components before building gateway graph
+    performance.mark('navsat:build:water-component:start');
+    this.waterComponent.initialize();
+    performance.mark('navsat:build:water-component:end');
+    const measure = performance.measure(
+      'navsat:build:water-component',
+      'navsat:build:water-component:start',
+      'navsat:build:water-component:end'
+    );
+
+    if (debug) {
+      console.log(`[DEBUG] Water Component Identification: ${measure.duration.toFixed(2)}ms`);
+    }
+
+    performance.mark('navsat:build:gateways:start');
     for (let sy = 0; sy < this.sectorsY; sy++) {
       for (let sx = 0; sx < this.sectorsX; sx++) {
         this.processSector(sx, sy);
       }
     }
-    performance.mark('navsat:build:phase1:end');
-    const phase1Measure = performance.measure(
-      'navsat:build:phase1',
-      'navsat:build:phase1:start',
-      'navsat:build:phase1:end'
+    performance.mark('navsat:build:gateways:end');
+    const gatewaysMeasure = performance.measure(
+      'navsat:build:gateways',
+      'navsat:build:gateways:start',
+      'navsat:build:gateways:end'
     );
 
     if (debug) {
-      console.log(`[DEBUG] Phase 1 (Gateway identification): ${phase1Measure.duration.toFixed(2)}ms`);
+      console.log(`[DEBUG] Gateway identification: ${gatewaysMeasure.duration.toFixed(2)}ms`);
 
       this.debugInfo!.edges = 0;
       this.debugInfo!.potentialBFSCalls = 0;
       this.debugInfo!.skippedByComponentFilter = 0;
     }
 
-    performance.mark('navsat:build:phase2:start');
+    performance.mark('navsat:build:edges:start');
     for (const sector of this.sectors.values()) {
       const gws = sector.gateways;
       const numGateways = gws.length;
@@ -180,15 +196,15 @@ export class GatewayGraphBuilder {
       this.debugInfo!.actualBFSCalls = this.debugInfo!.potentialBFSCalls! - this.debugInfo!.skippedByComponentFilter!;
     }
 
-    performance.mark('navsat:build:phase2:end');
-    const phase2Measure = performance.measure(
-      'navsat:build:phase2',
-      'navsat:build:phase2:start',
-      'navsat:build:phase2:end'
+    performance.mark('navsat:build:edges:end');
+    const edgesMeasure = performance.measure(
+      'navsat:build:edges',
+      'navsat:build:edges:start',
+      'navsat:build:edges:end'
     );
 
     if (debug) {
-      console.log(`[DEBUG] Phase 2 (Connection building): ${phase2Measure.duration.toFixed(2)}ms`);
+      console.log(`[DEBUG] Edges Identification: ${edgesMeasure.duration.toFixed(2)}ms`);
       console.log(`[DEBUG]   Potential BFS calls: ${this.debugInfo!.potentialBFSCalls}`);
       console.log(`[DEBUG]   Skipped by component filter: ${this.debugInfo!.skippedByComponentFilter} (${((this.debugInfo!.skippedByComponentFilter! / this.debugInfo!.potentialBFSCalls!) * 100).toFixed(1)}%)`);
       console.log(`[DEBUG]   Actual BFS calls: ${this.debugInfo!.actualBFSCalls}`);
@@ -235,7 +251,7 @@ export class GatewayGraphBuilder {
       x: x,
       y: y,
       tile: tile,
-      componentId: getWaterComponentId(this.miniMap, tile)
+      componentId: this.waterComponent.getComponentId(tile)
     };
 
     this.gateways.set(gateway.id, gateway);
