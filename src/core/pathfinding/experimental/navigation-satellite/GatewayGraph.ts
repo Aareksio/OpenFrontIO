@@ -96,6 +96,7 @@ export class GatewayGraphBuilder {
   // Mutable build state
   private sectors = new Map<number, Sector>();
   private gateways = new Map<number, Gateway>();
+  private tileToGateway = new Map<TileRef, Gateway>();
   private edges = new Map<number, Edge[]>();
   private nextGatewayId = 0;
 
@@ -238,16 +239,15 @@ export class GatewayGraphBuilder {
   }
 
   private getOrCreateGateway(x: number, y: number): Gateway {
-    // Search through all existing gateways to find one at this position
-    for (const gateway of this.gateways.values()) {
-      if (gateway.x === x && gateway.y === y) {
-        return gateway;
-      }
-    }
-
     const tile = this.miniMap.ref(x, y);
 
-    const gateway: Gateway = { 
+    // O(1) lookup using tile reference
+    const existing = this.tileToGateway.get(tile);
+    if (existing) {
+      return existing;
+    }
+
+    const gateway: Gateway = {
       id: this.nextGatewayId++,
       x: x,
       y: y,
@@ -256,6 +256,7 @@ export class GatewayGraphBuilder {
     };
 
     this.gateways.set(gateway.id, gateway);
+    this.tileToGateway.set(tile, gateway);
     return gateway;
   }
 
