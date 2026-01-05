@@ -27,7 +27,7 @@ export class FastBFS {
     map: GameMap,
     start: TileRef,
     maxDistance: number,
-    visitor: (tile: TileRef, dist: number) => T | null
+    visitor: (tile: TileRef, dist: number) => T | null | undefined
   ): T | null {
     const stamp = this.nextStamp();
     const w = map.width();
@@ -49,10 +49,18 @@ export class FastBFS {
         continue;
       }
 
-      // Call visitor - if it returns non-null, we're done
+      // Call visitor:
+      // - Returns T: Found target, return immediately
+      // - Returns null: Reject tile, don't explore neighbors
+      // - Returns undefined: Valid tile, explore neighbors
       const result = visitor(node, currentDist);
-      if (result !== null) {
+      if (result !== null && result !== undefined) {
         return result;
+      }
+
+      // If visitor returned null, reject this tile and don't explore neighbors
+      if (result === null) {
+        continue;
       }
 
       const nextDist = currentDist + 1;
