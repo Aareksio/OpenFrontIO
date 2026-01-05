@@ -283,8 +283,15 @@ export class NavigationSatellite {
       initialPath.push(...segmentPath.slice(1));
 
       if (this.options.cachePaths) {
-        // Cache the path for future reuse
+        // Cache the path for future reuse on both directional edges
         edge.path = segmentPath;
+
+        // Also cache the reversed path on the opposite direction edge
+        const reverseEdges = this.graph.getEdges(toGwId);
+        const reverseEdge = reverseEdges.find(e => e.to === fromGwId);
+        if (reverseEdge) {
+          reverseEdge.path = segmentPath.slice().reverse();
+        }
       }
     }
 
