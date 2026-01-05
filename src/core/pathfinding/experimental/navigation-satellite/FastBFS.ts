@@ -27,7 +27,8 @@ export class FastBFS {
     map: GameMap,
     start: TileRef,
     maxDistance: number,
-    visitor: (tile: TileRef, dist: number) => T | null | undefined
+    visitor: (tile: TileRef, dist: number) => T | null | undefined,
+    isValidTile: (tile: TileRef) => boolean
   ): T | null {
     const stamp = this.nextStamp();
     const w = map.width();
@@ -69,7 +70,7 @@ export class FastBFS {
       // North
       if (node >= w) {
         const n = node - w;
-        if (this.visitedStamp[n] !== stamp && map.isWater(n)) {
+        if (this.visitedStamp[n] !== stamp && isValidTile(n)) {
           this.visitedStamp[n] = stamp;
           this.dist[n] = nextDist;
           this.queue[tail++] = n;
@@ -79,7 +80,7 @@ export class FastBFS {
       // South
       if (node < lastRowStart) {
         const s = node + w;
-        if (this.visitedStamp[s] !== stamp && map.isWater(s)) {
+        if (this.visitedStamp[s] !== stamp && isValidTile(s)) {
           this.visitedStamp[s] = stamp;
           this.dist[s] = nextDist;
           this.queue[tail++] = s;
@@ -89,7 +90,7 @@ export class FastBFS {
       // West
       if (x !== 0) {
         const wv = node - 1;
-        if (this.visitedStamp[wv] !== stamp && map.isWater(wv)) {
+        if (this.visitedStamp[wv] !== stamp && isValidTile(wv)) {
           this.visitedStamp[wv] = stamp;
           this.dist[wv] = nextDist;
           this.queue[tail++] = wv;
@@ -99,7 +100,7 @@ export class FastBFS {
       // East
       if (x !== w - 1) {
         const ev = node + 1;
-        if (this.visitedStamp[ev] !== stamp && map.isWater(ev)) {
+        if (this.visitedStamp[ev] !== stamp && isValidTile(ev)) {
           this.visitedStamp[ev] = stamp;
           this.dist[ev] = nextDist;
           this.queue[tail++] = ev;

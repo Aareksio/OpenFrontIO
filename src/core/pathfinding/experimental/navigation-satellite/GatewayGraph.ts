@@ -538,7 +538,8 @@ export class GatewayGraphBuilder {
             return dist; // Return to stop BFS
           }
         }
-      }
+      },
+      (tile) => this.miniMap.isWater(tile)
     );
 
     return reachable;

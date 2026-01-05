@@ -390,7 +390,7 @@ export class NavigationSatellite {
       if (tileX < minX || tileX > maxX || tileY < minY || tileY > maxY) {
         return null;
       }
-    });
+    }, (tile) => miniMap.isWater(tile));
   }
 
   private findGatewayPath(
