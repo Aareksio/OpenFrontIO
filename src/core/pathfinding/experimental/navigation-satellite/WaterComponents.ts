@@ -7,7 +7,6 @@ const LAND_MARKER = 0xFF; // Must fit in Uint8Array
  * Pre-allocates buffers and provides explicit initialization.
  */
 export class WaterComponent {
-  private readonly map: GameMap;
   private readonly width: number;
   private readonly height: number;
   private readonly numTiles: number;
@@ -15,26 +14,19 @@ export class WaterComponent {
   private readonly queue: Int32Array;
   private componentIds: Uint8Array | Uint16Array | null = null;
 
-  // HACK: Direct access to terrain data for performance
-  private readonly terrain: Uint8Array;
-
-  constructor(map: GameMap) {
-    this.map = map;
+  constructor(
+    private readonly map: GameMap, 
+    private readonly accessTerrainDirectly: boolean = false
+  ) {
     this.width = map.width();
     this.height = map.height();
     this.numTiles = this.width * this.height;
     this.lastRowStart = (this.height - 1) * this.width;
     this.queue = new Int32Array(this.numTiles);
-
-    // HACK: Access private terrain field for performance
-    this.terrain = (map as any).terrain;
   }
 
   initialize(): void {
-    let ids: Uint8Array | Uint16Array = new Uint8Array(this.numTiles);
-
-    // Pre-mark all land tiles to optimize flood-fill
-    this.premarkLandTiles(ids);
+    let ids: Uint8Array | Uint16Array = this.createPrefilledIds();
 
     let nextId = 0;
 
@@ -61,16 +53,45 @@ export class WaterComponent {
   }
 
   /**
+   * Create and prefill a Uint8Array with land markers.
+   * Uses direct terrain access for performance.
+   */
+  private createPrefilledIds(): Uint8Array {
+    const ids = new Uint8Array(this.numTiles);
+
+    if (this.accessTerrainDirectly) {
+      this.premarkLandTilesDirect(ids);
+    } else {
+      this.premarkLandTiles(ids);
+    }
+
+    return ids;
+  }
+
+  /**
    * Pre-mark all land tiles in the ids array.
-   * Processes 4 bytes at a time for better performance.
    * Land tiles are marked with 0xFF, water tiles remain 0.
-   *
-   * Always called with Uint8Array (before potential upgrade to Uint16Array).
    */
   private premarkLandTiles(ids: Uint8Array): void {
+    for (let i = 0; i < this.numTiles; i++) {
+      ids[i] = this.map.isWater(i) ? 0 : LAND_MARKER;
+    }
+  }
+
+  /**
+   * Pre-mark all land tiles in the ids array.
+   * Land tiles are marked with 0xFF, water tiles remain 0.
+   * 
+   * This implementation accesses the terrain data **directly** without GameMap abstraction.
+   * In tests it is 30% to 50% faster than using isWater() method calls.
+   * As of 2026-01-05 it reduces avg. time for GWM from 15ms to 10ms.
+   */
+  private premarkLandTilesDirect(ids: Uint8Array): void {
+    const terrain = (this.map as any).terrain as Uint8Array;
+
     // Write 4 bytes at once using Uint32Array view for better performance
     const numChunks = Math.floor(this.numTiles / 4);
-    const terrain32 = new Uint32Array(this.terrain.buffer, this.terrain.byteOffset, numChunks);
+    const terrain32 = new Uint32Array(terrain.buffer, terrain.byteOffset, numChunks);
     const ids32 = new Uint32Array(ids.buffer, ids.byteOffset, numChunks);
 
     for (let i = 0; i < numChunks; i++) {
@@ -89,7 +110,7 @@ export class WaterComponent {
 
     // Handle remaining tiles (when numTiles not divisible by 4)
     for (let i = numChunks * 4; i < this.numTiles; i++) {
-      ids[i] = -(this.terrain[i] >> 7);
+      ids[i] = -(terrain[i] >> 7);
     }
   }
 
