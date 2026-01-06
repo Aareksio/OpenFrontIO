@@ -1,5 +1,4 @@
 import { loadMap } from "./maps.js";
-import { NavigationSatellite } from "../../../../src/core/pathfinding/experimental/navigation-satellite/NavigationSatelitte.js";
 import { TileRef } from "../../../../src/core/game/GameMap.js";
 import { PathFinderMiniAdapter } from "../../pathfinding-interface.js";
 
@@ -105,7 +104,7 @@ export async function computePath(
     gateways,
     timings,
     length: path ? path.length : 0,
-    time: timings.total || 0,
+    time: timings.total ?? 0,
   };
 }
 

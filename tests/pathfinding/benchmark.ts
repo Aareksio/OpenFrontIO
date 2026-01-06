@@ -43,7 +43,7 @@ interface RunOptions {
 }
 
 const DEFAULT_ADAPTER = "NavSat";
-const DEFAULT_SCENARIO = "giantworldmap-lite";
+const DEFAULT_SCENARIO = "default";
 
 async function runScenario(adapterName: string, scenarioName: string, options: RunOptions = {}) {
   const { game, routes, performanceIterations } = await getScenario(scenarioName);
