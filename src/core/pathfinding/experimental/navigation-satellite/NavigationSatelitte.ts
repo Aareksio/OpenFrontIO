@@ -118,7 +118,9 @@ export class NavigationSatellite {
           gateways: this.graph.getAllGateways().map(gw => ({ id: gw.id, tile: gw.tile })),
           edges: allEdges
         },
-        timings: {},
+        timings: {
+          total: 0,
+        },
       };
     }
 
@@ -142,6 +144,7 @@ export class NavigationSatellite {
 
       if (debug) {
         this.debugInfo!.timings.earlyExitLocalPath = measure.duration;
+        this.debugInfo!.timings.total+= measure.duration;
       }
 
       if (localPath) {
@@ -169,6 +172,7 @@ export class NavigationSatellite {
 
     if (debug) {
       this.debugInfo!.timings.findGateways = findGatewaysMeasure.duration;
+      this.debugInfo!.timings.total += findGatewaysMeasure.duration;
     }
 
     if (!startGateway) {
@@ -192,9 +196,23 @@ export class NavigationSatellite {
         console.log(`[DEBUG] Start and end gateways are the same (ID=${startGateway.id}), finding local path with multi-sector search`);
       }
 
+      performance.mark('navsat:findPath:sameGatewayLocalPath:start');
       const sectorX = Math.floor(startGateway.x / this.graph.sectorSize);
       const sectorY = Math.floor(startGateway.y / this.graph.sectorSize);
-      return this.findLocalPath(from, to, sectorX, sectorY, 10000, true);
+      const path = this.findLocalPath(from, to, sectorX, sectorY, 10000, true);
+      performance.mark('navsat:findPath:sameGatewayLocalPath:end');
+      const sameGatewayMeasure = performance.measure(
+        'navsat:findPath:sameGatewayLocalPath',
+        'navsat:findPath:sameGatewayLocalPath:start',
+        'navsat:findPath:sameGatewayLocalPath:end'
+      );
+
+      if (debug) {
+        this.debugInfo!.timings.sameGatewayLocalPath = sameGatewayMeasure.duration;
+        this.debugInfo!.timings.total += sameGatewayMeasure.duration;
+      }
+
+      return path;
     }
 
     performance.mark('navsat:findPath:findGatewayPath:start');
@@ -208,6 +226,7 @@ export class NavigationSatellite {
 
     if (debug) {
       this.debugInfo!.timings.findGatewayPath = findGatewayPathMeasure.duration;
+      this.debugInfo!.timings.total += findGatewayPathMeasure.duration;
 
       this.debugInfo!.gatewayPath = gatewayPath ? gatewayPath.map(gwId => {
         const gw = this.graph.getGateway(gwId);
@@ -322,6 +341,7 @@ export class NavigationSatellite {
 
     if (debug) {
       this.debugInfo!.timings.buildInitialPath = buildInitialPathMeasure.duration;
+      this.debugInfo!.timings.total += buildInitialPathMeasure.duration;
       this.debugInfo!.initialPath = initialPath;
       console.log(`[DEBUG] Initial path: ${initialPath.length} tiles`);
     }
@@ -336,7 +356,8 @@ export class NavigationSatellite {
     );
 
     if (debug) {
-      this.debugInfo!.timings.buildSmoothPath = smoothPathMeasure.duration
+      this.debugInfo!.timings.buildSmoothPath = smoothPathMeasure.duration;
+      this.debugInfo!.timings.total += smoothPathMeasure.duration;
       this.debugInfo!.smoothPath = smoothedPath;
       console.log(`[DEBUG] Smoothed path: ${initialPath.length} → ${smoothedPath.length} tiles`);
     }
