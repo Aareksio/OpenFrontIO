@@ -1,4 +1,4 @@
-import { GameMap, TileRef } from '../../../game/GameMap';
+import { GameMap, TileRef } from '../../game/GameMap';
 import { FastAStarAdapter } from './FastAStar';
 import { GatewayGraph } from './GatewayGraph';
 

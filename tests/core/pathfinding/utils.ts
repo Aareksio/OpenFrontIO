@@ -21,13 +21,13 @@ const OCEAN_BIT = 5;
  * miniMap automatically generated (2x2→1, water if ANY tile water)
  *
  * Example:
- *   const game = await mapFromString([
+ *   const game = await gameFromString([
  *     'WWWWW',
  *     'WLLLW',
  *     'WWWWW'
  *   ]);
  */
-export async function mapFromString(mapRows: string[]): Promise<Game> {
+export async function gameFromString(mapRows: string[]): Promise<Game> {
   const height = mapRows.length;
   const width = mapRows[0].length;
 

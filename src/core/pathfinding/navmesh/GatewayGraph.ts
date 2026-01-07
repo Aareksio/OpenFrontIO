@@ -1,6 +1,6 @@
-import { Game } from '../../../game/Game';
-import { GameMap, TileRef } from '../../../game/GameMap';
-import { WaterComponent } from './WaterComponents';
+import { Game } from '../../game/Game';
+import { GameMap, TileRef } from '../../game/GameMap';
+import { WaterComponents } from './WaterComponents';
 import { FastBFS } from './FastBFS';
 
 export interface Gateway {
@@ -90,7 +90,7 @@ export class GatewayGraphBuilder {
   private readonly sectorsX: number;
   private readonly sectorsY: number;
   private readonly fastBFS: FastBFS;
-  private readonly waterComponent: WaterComponent;
+  private readonly waterComponents: WaterComponents;
 
   // Mutable build state
   private sectors = new Map<number, Sector>();
@@ -112,7 +112,7 @@ export class GatewayGraphBuilder {
     this.sectorsX = Math.ceil(this.width / sectorSize);
     this.sectorsY = Math.ceil(this.height / sectorSize);
     this.fastBFS = new FastBFS(this.width * this.height);
-    this.waterComponent = new WaterComponent(this.miniMap);
+    this.waterComponents = new WaterComponents(this.miniMap);
   }
 
   build(debug: boolean): GatewayGraph {
@@ -134,7 +134,7 @@ export class GatewayGraphBuilder {
 
     // Initialize water components before building gateway graph
     performance.mark('navsat:build:water-component:start');
-    this.waterComponent.initialize();
+    this.waterComponents.initialize();
     performance.mark('navsat:build:water-component:end');
     const measure = performance.measure(
       'navsat:build:water-component',
@@ -251,7 +251,7 @@ export class GatewayGraphBuilder {
       x: x,
       y: y,
       tile: tile,
-      componentId: this.waterComponent.getComponentId(tile)
+      componentId: this.waterComponents.getComponentId(tile)
     };
 
     this.gateways.set(gateway.id, gateway);

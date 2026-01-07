@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { Game, Difficulty, GameMapSize, GameMapType, GameMode, GameType, PlayerInfo } from '../../src/core/game/Game';
 import { TileRef } from '../../src/core/game/GameMap';
-import { PathFinderMiniAdapter, PathfindingInterface, NavigationSatelliteAdapter, VimacsTileToShoreAdapter, VimacsTileToWaterAdapter } from './pathfinding-interface';
+import { PathFinderMiniAdapter, PathfindingInterface, NavigationSatelliteAdapter } from './pathfinding-interface';
 import { createGame } from '../../src/core/game/GameImpl';
 import { genTerrainFromBin, MapManifest } from '../../src/core/game/TerrainMapLoader';
 import { UserSettings } from '../../src/core/game/UserSettings';
@@ -34,17 +34,13 @@ export type BenchmarkSummary = {
 
 export function getAdapter(
   game: Game,
-  name: string, 
+  name: string,
 ): PathfindingInterface {
   switch (name) {
     case "PF.Mini":
       return new PathFinderMiniAdapter(game);
     case "NavSat":
       return new NavigationSatelliteAdapter(game);
-    case "Vimacs.TileToShore":
-      return new VimacsTileToShoreAdapter(game);
-    case "Vimacs.TileToWater":
-      return new VimacsTileToWaterAdapter(game);
     default:
       throw new Error(`Unknown pathfinding adapter: ${name}`);
   }

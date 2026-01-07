@@ -3,7 +3,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { Game } from "../../../../src/core/game/Game.js";
 import { TileRef } from "../../../../src/core/game/GameMap.js";
-import { NavigationSatellite } from "../../../../src/core/pathfinding/experimental/navigation-satellite/NavigationSatelitte.js";
+import { NavMesh } from "../../../../src/core/pathfinding/navmesh/NavMesh.js";
 import { setupFromPath } from "../../utils.js";
 
 export interface MapInfo {
@@ -13,7 +13,7 @@ export interface MapInfo {
 
 export interface MapCache {
   game: Game;
-  navSat: NavigationSatellite;
+  navSat: NavMesh;
 }
 
 const cache = new Map<string, MapCache>();
@@ -113,8 +113,8 @@ export async function loadMap(mapName: string): Promise<MapCache> {
   // Use the existing setupFromPath utility to load the map
   const game = await setupFromPath(mapsDir, mapName);
 
-  // Initialize NavigationSatellite adapter
-  const navSat = new NavigationSatellite(game, { cachePaths: config.cachePaths });
+  // Initialize NavMesh adapter
+  const navSat = new NavMesh(game, { cachePaths: config.cachePaths });
   navSat.initialize();
 
   const cacheEntry: MapCache = { game, navSat };
@@ -140,7 +140,7 @@ export async function getMapMetadata(mapName: string) {
     }
   }
 
-  // Extract static graph data from NavigationSatellite
+  // Extract static graph data from NavMesh
   const miniMap = game.miniMap();
   const navSatGraph = (navSat as any).graph;
 

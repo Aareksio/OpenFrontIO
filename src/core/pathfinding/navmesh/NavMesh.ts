@@ -1,5 +1,5 @@
-import { Game } from '../../../game/Game';
-import { TileRef } from '../../../game/GameMap';
+import { Game } from '../../game/Game';
+import { TileRef } from '../../game/GameMap';
 import { FastBFS } from './FastBFS';
 import { FastAStar } from './FastAStar';
 import { GatewayGraph, GatewayGraphBuilder, Gateway } from './GatewayGraph';
@@ -24,7 +24,7 @@ type PathDebugInfo = {
   timings: { [key: string]: number };
 }
 
-export class NavigationSatellite {
+export class NavMesh {
   private graph!: GatewayGraph;
   private initialized = false;
   private fastBFS!: FastBFS;

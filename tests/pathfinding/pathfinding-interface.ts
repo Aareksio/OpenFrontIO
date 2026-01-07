@@ -1,9 +1,8 @@
 import { Game } from "../../src/core/game/Game";
 import { TileRef } from "../../src/core/game/GameMap";
-import { NavigationSatellite } from "../../src/core/pathfinding/experimental/navigation-satellite/NavigationSatelitte";
+import { NavMesh } from "../../src/core/pathfinding/navmesh/NavMesh";
 import { MiniPathFinder } from "../../src/core/pathfinding/PathFinding";
 import { PathFindResultType } from "../../src/core/pathfinding/AStar";
-import { boatPathFromTileToShore, boatPathFromTileToWater } from '../../src/core/pathfinding/experimental/vimacs/TransportShipUtils';
 
 /**
  * Common interface for pathfinding implementations.
@@ -68,63 +67,19 @@ export class PathFinderMiniAdapter implements PathfindingInterface {
 
 export class NavigationSatelliteAdapter implements PathfindingInterface {
   readonly name = "NavSat";
-  private readonly satellite: NavigationSatellite;
+  private readonly navMesh: NavMesh;
 
   constructor(game: Game) {
-    this.satellite = new NavigationSatellite(game);
+    this.navMesh = new NavMesh(game);
   }
 
   initialize(): void {
-    this.satellite.initialize();
+    this.navMesh.initialize();
   }
 
   findPath(from: TileRef, to: TileRef): TileRef[] | null {
     try {
-      return this.satellite.findPath(from, to);
-    } catch (e) {
-      return null;
-    }
-  }
-}
-
-export class VimacsTileToShoreAdapter implements PathfindingInterface {
-  readonly name = "Vimacs.TileToShore";
-  private readonly game: Game;
-
-  constructor(game: Game) {
-    this.game = game;
-  }
-
-  initialize(): void {
-    // No initialization needed
-  }
-
-  findPath(from: TileRef, to: TileRef): TileRef[] | null {
-    try {
-      const gm = this.game.map();
-      return boatPathFromTileToShore(gm, from, to);
-    } catch (e) {
-      return null;
-    }
-  }
-}
-
-export class VimacsTileToWaterAdapter implements PathfindingInterface {
-  readonly name = "Vimacs.TileToWater";
-  private readonly game: Game;
-
-  constructor(game: Game) {
-    this.game = game;
-  }
-
-  initialize(): void {
-    // No initialization needed
-  }
-
-  findPath(from: TileRef, to: TileRef): TileRef[] | null {
-    try {
-      const gm = this.game.map();
-      return boatPathFromTileToWater(gm, from, to);
+      return this.navMesh.findPath(from, to);
     } catch (e) {
       return null;
     }

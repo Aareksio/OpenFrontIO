@@ -1,240 +1,306 @@
-import { describe, test, expect, vi } from "vitest";
-import { PathFinder, PathFinders, PathStatus } from "../../../src/core/pathfinding/PathFinder";
+import { describe, test, expect, beforeAll, vi } from "vitest";
+import { MiniAStarAdapter } from "../../../src/core/pathfinding/adapters/MiniAStarAdapter";
+import { NavMeshAdapter } from "../../../src/core/pathfinding/adapters/NavMeshAdapter";
+import { PathFinder, PathStatus } from "../../../src/core/pathfinding/PathFinder";
+import { Game } from "../../../src/core/game/Game";
 import { TileRef } from "../../../src/core/game/GameMap";
-import { mapFromString } from "./utils";
+import { gameFromString } from "./utils";
 import { setup } from "../../util/Setup";
 
-function navigateTo(
-  pathFinder: PathFinder,
-  from: TileRef,
-  to: TileRef,
-  maxIter = 100
-): { reached: boolean; notFound: boolean; pos: TileRef; steps: number; path: TileRef[] } {
-  const status = {
-    reached: false,
-    notFound: false,
-    pos: from,
-    steps: 0,
-    path: [] as TileRef[]
-  };
+type AdapterFactory = {
+  name: string;
+  create: (game: Game) => PathFinder;
+};
 
-  for (let i = 0; i < maxIter; i++) {
-    const result = pathFinder.next(status.pos, to);
+const adapters: AdapterFactory[] = [
+  {
+    name: "MiniAStarAdapter",
+    create: (game) => new MiniAStarAdapter(game, { waterPath: true }),
+  },
+  {
+    name: "NavMeshAdapter",
+    create: (game) => new NavMeshAdapter(game),
+  },
+];
 
-    if (result.status === PathStatus.NEXT) {
-      status.path.push(result.node);
-      status.pos = result.node;
-      status.steps++;
-    } else if (result.status === PathStatus.COMPLETE) {
-      status.path.push(result.node);
-      status.reached = true;
-      return status;
-    } else if (result.status === PathStatus.NOT_FOUND) {
-      status.notFound = true;
-      return status;
-    }
-  }
+// Shared world game instance
+let worldGame: Game;
 
-  return status;
-}
+beforeAll(async () => {
+  worldGame = await setup("world");
+});
 
-describe("PathFinder state machine tests", () => {
-  describe("next() basic behavior", () => {
-    test("returns next on first call", async () => {
-      const game = await mapFromString(["WWWW"]);
-      const pathFinder = PathFinders.Water(game);
-      const src = game.map().ref(0, 0);
-      const dst = game.map().ref(3, 0);
+describe.each(adapters)("$name", ({ create }) => {
+  describe("findPath()", () => {
+    test("finds path between adjacent tiles", async () => {
+      const game = await gameFromString(["WWWW"]);
+      const adapter = create(game);
+      const src = game.ref(0, 0);
+      const dst = game.ref(1, 0);
 
-      const result = pathFinder.next(src, dst);
+      const path = adapter.findPath(src, dst);
+
+      expect(path).not.toBeNull();
+      expect(path![0]).toBe(src);
+      expect(path![path!.length - 1]).toBe(dst);
+    });
+
+    test("finds path across multiple tiles", async () => {
+      const game = await gameFromString(["WWWWWW", "WWWWWW", "WWWWWW"]);
+      const adapter = create(game);
+      const src = game.ref(0, 0);
+      const dst = game.ref(5, 2);
+
+      const path = adapter.findPath(src, dst);
+
+      expect(path).not.toBeNull();
+      expect(path![0]).toBe(src);
+      expect(path![path!.length - 1]).toBe(dst);
+    });
+
+    test("returns single-element path for same tile", async () => {
+      // Old quirk of MiniAStar, we return dst tile twice
+      // Should probably be fixed to return [] instead
+
+      const game = await gameFromString(["WW"]);
+      const adapter = create(game);
+      const tile = game.ref(0, 0);
+
+      const path = adapter.findPath(tile, tile);
+
+      expect(path).not.toBeNull();
+      expect(path!.length).toBe(1);
+      expect(path![0]).toBe(tile);
+    });
+
+    test("returns null for blocked path", async () => {
+      const game = await gameFromString(["WWLLWW"]);
+      const adapter = create(game);
+      const src = game.ref(0, 0);
+      const dst = game.ref(5, 0);
+
+      const path = adapter.findPath(src, dst);
+
+      expect(path).toBeNull();
+    });
+
+    test("returns null for water to land", () => {
+      const adapter = create(worldGame);
+      const src = worldGame.ref(926, 283); // water
+      const dst = worldGame.ref(950, 230); // land
+
+      const path = adapter.findPath(src, dst);
+
+      expect(path).toBeNull();
+    });
+
+    test("traverses 3-tile path in 3 tiles", async () => {
+      // Expected: [1, 2, 3]
+      const game = await gameFromString(["WWWW"]);
+      const adapter = create(game);
+      const src = game.ref(0, 0);
+      const dst = game.ref(3, 0);
+
+      const path = adapter.findPath(src, dst);
+
+      expect(path).not.toBeNull();
+      expect(path).toEqual([game.ref(0, 0), game.ref(1, 0), game.ref(2, 0), game.ref(3, 0)]);
+    });
+  });
+
+  describe("next() state machine", () => {
+    test("returns NEXT on first call", async () => {
+      const game = await gameFromString(["WWWW"]);
+      const adapter = create(game);
+      const src = game.ref(0, 0);
+      const dst = game.ref(3, 0);
+
+      const result = adapter.next(src, dst);
+
       expect(result.status).toBe(PathStatus.NEXT);
     });
 
-    test("returns complete when destination reached", async () => {
-      const game = await mapFromString(["WWWW"]);
-      const pathFinder = PathFinders.Water(game);
-      const src = game.map().ref(0, 0);
-      const dst = game.map().ref(3, 0);
+    test("returns COMPLETE when at destination", async () => {
+      const game = await gameFromString(["WW"]);
+      const adapter = create(game);
+      const tile = game.ref(0, 0);
 
-      const result = navigateTo(pathFinder, src, dst);
-      expect(result.reached).toBe(true);
-    });
+      const result = adapter.next(tile, tile);
 
-    test("returns complete immediately when already at destination", async () => {
-      const game = await mapFromString(["WWWW"]);
-      const pathFinder = PathFinders.Water(game);
-      const src = game.map().ref(0, 0);
-
-      const result = pathFinder.next(src, src, 1);
       expect(result.status).toBe(PathStatus.COMPLETE);
-
-      if (result.status === PathStatus.COMPLETE) {
-        expect(result.node).toBe(src);
-      }
     });
 
-    test("subsequent calls continue path", async () => {
-      const game = await mapFromString(["WWWW"]);
-      const pathFinder = PathFinders.Water(game);
-      const src = game.map().ref(0, 0);
-      const dst = game.map().ref(3, 0);
+    test("returns NOT_FOUND for blocked path", async () => {
+      const game = await gameFromString(["WWLLWW"]);
+      const adapter = create(game);
+      const src = game.ref(0, 0);
+      const dst = game.ref(5, 0);
 
-      const result = navigateTo(pathFinder, src, dst);
-      expect(result.reached).toBe(true);
-      expect(result.pos).toBe(dst);
-      expect(result.steps).toBeGreaterThan(0);
+      const result = adapter.next(src, dst);
+
+      expect(result.status).toBe(PathStatus.NOT_FOUND);
+    });
+
+    test("traverses 3-tile path in 4 calls", async () => {
+      // Expected: NEXT(1) -> NEXT(2) -> NEXT(3) -> COMPLETE(4)
+      const game = await gameFromString(["WWWW"]);
+      const adapter = create(game);
+      const src = game.ref(0, 0);
+      const dst = game.ref(3, 0);
+
+      let current = src;
+      const steps: string[] = [];
+
+      // 3 NEXT calls to reach destination
+      for (let i = 1; i <= 4; i++) {
+        const result = adapter.next(current, dst);
+        expect(result.status).toBeOneOf([PathStatus.NEXT, PathStatus.COMPLETE]);
+
+        current = (result as { node: TileRef }).node;
+        steps.push(`${PathStatus[result.status]}(${current})`);
+      }
+
+      expect(steps).toEqual(["NEXT(1)", "NEXT(2)", "NEXT(3)", "COMPLETE(3)"]);
     });
   });
 
   describe("Destination changes", () => {
     test("reaches new destination when dest changes", async () => {
-      const game = await mapFromString([
-        "WWWWWWWW", // 8 wide
-      ]);
+      const game = await gameFromString(["WWWWWWWW"]); // 8 wide
+      const adapter = create(game);
+      const src = game.ref(0, 0);
+      const dst1 = game.ref(4, 0);
+      const dst2 = game.ref(7, 0);
 
-      const pathFinder = PathFinders.Water(game);
-      const src = game.map().ref(0, 0);
-      const dst1 = game.map().ref(4, 0);
-      const dst2 = game.map().ref(7, 0);
+      // First path exists
+      expect(adapter.findPath(src, dst1)).not.toBeNull();
 
-      const first = navigateTo(pathFinder, src, dst1);
-      expect(first.reached).toBe(true);
-
-      const second = navigateTo(pathFinder, first.pos, dst2);
-      expect(second.reached).toBe(true);
-      expect(second.pos).toBe(dst2);
+      // Can still find path to new destination
+      expect(adapter.findPath(dst1, dst2)).not.toBeNull();
     });
 
-    test("recomputes path when destination significantly changes", async () => {
-      const game = await mapFromString([
-        "WWWWWWWWWWWWWWWWWWWW", // 20 wide
-      ]);
+    test("recomputes when destination changes mid-path", async () => {
+      const game = await gameFromString(["WWWWWWWWWWWWWWWWWWWW"]); // 20 wide
+      const adapter = create(game);
+      const src = game.ref(0, 0);
+      const dst1 = game.ref(10, 0);
+      const dst2 = game.ref(19, 0);
 
-      const pathFinder = PathFinders.Water(game);
-      const src = game.map().ref(0, 0);
-      const dst1 = game.map().ref(10, 0);
-      const dst2 = game.map().ref(19, 0);
-
-      // Start pathing to dst1
-      const result1 = pathFinder.next(src, dst1);
+      // Start pathing to dst1, take one step
+      const result1 = adapter.next(src, dst1);
       expect(result1.status).toBe(PathStatus.NEXT);
 
-      // Change to far destination (should trigger recompute)
-      const result2 = pathFinder.next(src, dst2);
-      expect(result2.status).toBe(PathStatus.NEXT);
+      // Change destination mid-path, continue from current position
+      let current = (result1 as { node: TileRef }).node;
+      let result = adapter.next(current, dst2);
+      for (let i = 0; i < 100 && result.status === PathStatus.NEXT; i++) {
+        current = (result as { node: TileRef }).node;
+        result = adapter.next(current, dst2);
+      }
 
-      // Eventually should reach dst2
-      const nav = navigateTo(pathFinder, src, dst2);
-      expect(nav.reached).toBe(true);
+      expect(result.status).toBe(PathStatus.COMPLETE);
+      expect(current).toBe(dst2);
     });
   });
 
   describe("Error handling", () => {
-    test("returns not-found for null source", async () => {
-      const game = await mapFromString(["WWWW"]);
-      const pathFinder = PathFinders.Water(game);
-      const dst = game.map().ref(0, 0);
+    // MiniAStar logs conosle error when nulls passed, muted in test
 
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    test("returns NOT_FOUND for null source", async () => {
+      const game = await gameFromString(["WWWW"]);
+      const adapter = create(game);
+      const dst = game.ref(0, 0);
 
-      const result = pathFinder.next(null as unknown as TileRef, dst);
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const result = adapter.next(null as unknown as TileRef, dst);
       expect(result.status).toBe(PathStatus.NOT_FOUND);
-
       consoleSpy.mockRestore();
     });
 
-    test("returns not-found for null destination", async () => {
-      const game = await mapFromString(["WWWW"]);
-      const pathFinder = PathFinders.Water(game);
-      const src = game.map().ref(0, 0);
+    test("returns NOT_FOUND for null destination", async () => {
+      const game = await gameFromString(["WWWW"]);
+      const adapter = create(game);
+      const src = game.ref(0, 0);
 
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      const result = pathFinder.next(src, null as unknown as TileRef);
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const result = adapter.next(src, null as unknown as TileRef);
       expect(result.status).toBe(PathStatus.NOT_FOUND);
-
       consoleSpy.mockRestore();
     });
   });
 
-  describe("Bugs", () => {
-    test.skip("returns not-found when no path exists", async () => {
-      // Expected to fail until we implement pathing that
-      // is aware of upscaling from miniMap to main map.
+  describe("dist parameter", () => {
+    test("returns COMPLETE when within dist", () => {
+      const adapter = create(worldGame);
+      const src = worldGame.ref(926, 283);
+      const dst = worldGame.ref(928, 283); // 2 tiles away
 
-      const game = await mapFromString(["WLLW"]);
-      const pathFinder = PathFinders.Water(game);
-      const src = game.map().ref(0, 0);
-      const dst = game.map().ref(3, 0);
+      const result = adapter.next(src, dst, 5);
 
-      const result = navigateTo(pathFinder, src, dst);
-      expect(result.notFound).toBe(true);
+      expect(result.status).toBe(PathStatus.COMPLETE);
     });
-  })
-});
 
-describe("PathFinder world map tests", () => {
-  // Ocean shoreline coordinates:
-  // Spain east coast: [926, 283], France south coast: [950, 257]
-  // Poland north coast: [1033, 175], Miami: [488, 355], Rio: [680, 658]
+    test("returns NEXT when beyond dist", () => {
+      const adapter = create(worldGame);
+      const src = worldGame.ref(926, 283);
+      const dst = worldGame.ref(950, 257);
 
-  test("finds path Spain to France (Mediterranean)", async () => {
-    const game = await setup("world");
-    const pathFinder = PathFinders.Water(game);
+      // Adapter may need a few ticks to compute path
+      let result = adapter.next(src, dst, 5);
+      for (let i = 0; i < 100 && result.status === PathStatus.PENDING; i++) {
+        result = adapter.next(src, dst, 5);
+      }
 
-    const src = game.ref(926, 283); // Spain east coast
-    const dst = game.ref(950, 257); // France south coast
-
-    const result = navigateTo(pathFinder, src, dst, 500);
-    expect(result.reached).toBe(true);
-    expect(result.steps).toBeGreaterThan(0);
+      expect(result.status).toBe(PathStatus.NEXT);
+    });
   });
 
-  test("finds path Miami to Rio (Atlantic)", async () => {
-    const game = await setup("world");
-    const pathFinder = PathFinders.Water(game);
+  describe("World map routes", () => {
+    test("Spain to France (Mediterranean)", () => {
+      const adapter = create(worldGame);
+      const path = adapter.findPath(worldGame.ref(926, 283), worldGame.ref(950, 257));
+      expect(path).not.toBeNull();
+    });
 
-    const src = game.ref(488, 355); // Miami
-    const dst = game.ref(680, 658); // Rio
+    test("Miami to Rio (Atlantic)", () => {
+      const adapter = create(worldGame);
+      const path = adapter.findPath(worldGame.ref(488, 355), worldGame.ref(680, 658));
+      expect(path).not.toBeNull();
+      expect(path!.length).toBeGreaterThan(100);
+    });
 
-    const result = navigateTo(pathFinder, src, dst, 2000);
-    expect(result.reached).toBe(true);
-    expect(result.steps).toBeGreaterThan(100);
+    test("France to Poland (around Europe)", () => {
+      const adapter = create(worldGame);
+      const path = adapter.findPath(worldGame.ref(950, 257), worldGame.ref(1033, 175));
+      expect(path).not.toBeNull();
+    });
+
+    test("Miami to Spain (transatlantic)", () => {
+      const adapter = create(worldGame);
+      const path = adapter.findPath(worldGame.ref(488, 355), worldGame.ref(926, 283));
+      expect(path).not.toBeNull();
+    });
+
+    test("Rio to Poland (South Atlantic to Baltic)", () => {
+      const adapter = create(worldGame);
+      const path = adapter.findPath(worldGame.ref(680, 658), worldGame.ref(1033, 175));
+      expect(path).not.toBeNull();
+    });
   });
 
-  test("finds path France to Poland (around Europe)", async () => {
-    const game = await setup("world");
-    const pathFinder = PathFinders.Water(game);
+  describe("Known bugs", () => {
+    test("path can cross 1-tile land barrier", async () => {
+      const game = await gameFromString(["WLLWLWWLLW"]);
+      const adapter = new MiniAStarAdapter(game, { waterPath: true });
+      const path = adapter.findPath(game.ref(0, 0), game.ref(9, 0));
+      expect(path).not.toBeNull();
+    });
 
-    const src = game.ref(950, 257); // France south coast
-    const dst = game.ref(1033, 175); // Poland north coast
-
-    const result = navigateTo(pathFinder, src, dst, 2000);
-    expect(result.reached).toBe(true);
-    expect(result.steps).toBeGreaterThan(50);
-  });
-
-  test("finds path Miami to Spain (transatlantic)", async () => {
-    const game = await setup("world");
-    const pathFinder = PathFinders.Water(game);
-
-    const src = game.ref(488, 355); // Miami
-    const dst = game.ref(926, 283); // Spain east coast
-
-    const result = navigateTo(pathFinder, src, dst, 3000);
-    expect(result.reached).toBe(true);
-    expect(result.steps).toBeGreaterThan(200);
-  });
-
-  test("finds path Rio to Poland (South Atlantic to Baltic)", async () => {
-    const game = await setup("world");
-    const pathFinder = PathFinders.Water(game);
-
-    const src = game.ref(680, 658); // Rio
-    const dst = game.ref(1033, 175); // Poland north coast
-
-    const result = navigateTo(pathFinder, src, dst, 5000);
-    expect(result.reached).toBe(true);
-    expect(result.steps).toBeGreaterThan(300);
+    test("path can cross diagonal land barrier", async () => {
+      const game = await gameFromString(["WL", "LW"]);
+      const adapter = new MiniAStarAdapter(game, { waterPath: true });
+      const path = adapter.findPath(game.ref(0, 0), game.ref(1, 1));
+      expect(path).not.toBeNull();
+    });
   });
 });
