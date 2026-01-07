@@ -108,7 +108,7 @@ export class GameImpl implements Game {
     this.addPlayers();
 
     if (!_config.disableNavMesh()) {
-      this._navMesh = new NavMesh(this);
+      this._navMesh = new NavMesh(this, { cachePaths: true });
       this._navMesh.initialize();
     }
   }
