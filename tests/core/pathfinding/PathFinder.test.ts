@@ -3,6 +3,7 @@ import { PathFinder } from "../../../src/core/pathfinding/PathFinding";
 import { PathFindResultType } from "../../../src/core/pathfinding/AStar";
 import { TileRef } from "../../../src/core/game/GameMap";
 import { mapFromString } from "./utils";
+import { setup } from "../../util/Setup";
 
 const DEFAULT_ITERATIONS = 10_000;
 const DEFAULT_TRIES = 1;
@@ -174,4 +175,70 @@ describe("PathFinder state machine tests", () => {
       expect(result.notFound).toBe(true);
     });
   })
+});
+
+describe("PathFinder world map tests", () => {
+  // Ocean shoreline coordinates:
+  // Spain east coast: [926, 283], France south coast: [950, 257]
+  // Poland north coast: [1033, 175], Miami: [488, 355], Rio: [680, 658]
+
+  test("finds path Spain to France (Mediterranean)", async () => {
+    const game = await setup("world");
+    const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+
+    const src = game.ref(926, 283); // Spain east coast
+    const dst = game.ref(950, 257); // France south coast
+
+    const result = navigateTo(pathFinder, src, dst, 500);
+    expect(result.reached).toBe(true);
+    expect(result.steps).toBeGreaterThan(0);
+  });
+
+  test("finds path Miami to Rio (Atlantic)", async () => {
+    const game = await setup("world");
+    const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+
+    const src = game.ref(488, 355); // Miami
+    const dst = game.ref(680, 658); // Rio
+
+    const result = navigateTo(pathFinder, src, dst, 2000);
+    expect(result.reached).toBe(true);
+    expect(result.steps).toBeGreaterThan(100);
+  });
+
+  test("finds path France to Poland (around Europe)", async () => {
+    const game = await setup("world");
+    const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+
+    const src = game.ref(950, 257); // France south coast
+    const dst = game.ref(1033, 175); // Poland north coast
+
+    const result = navigateTo(pathFinder, src, dst, 2000);
+    expect(result.reached).toBe(true);
+    expect(result.steps).toBeGreaterThan(50);
+  });
+
+  test("finds path Miami to Spain (transatlantic)", async () => {
+    const game = await setup("world");
+    const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+
+    const src = game.ref(488, 355); // Miami
+    const dst = game.ref(926, 283); // Spain east coast
+
+    const result = navigateTo(pathFinder, src, dst, 3000);
+    expect(result.reached).toBe(true);
+    expect(result.steps).toBeGreaterThan(200);
+  });
+
+  test("finds path Rio to Poland (South Atlantic to Baltic)", async () => {
+    const game = await setup("world");
+    const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+
+    const src = game.ref(680, 658); // Rio
+    const dst = game.ref(1033, 175); // Poland north coast
+
+    const result = navigateTo(pathFinder, src, dst, 5000);
+    expect(result.reached).toBe(true);
+    expect(result.steps).toBeGreaterThan(300);
+  });
 });
