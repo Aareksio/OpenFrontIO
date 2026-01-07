@@ -1,6 +1,6 @@
 import { Game } from "../game/Game";
 import { TileRef } from "../game/GameMap";
-import { MiniAdapter } from "./adapters/MiniAdapter";
+import { MiniAStarAdapter } from "./adapters/MiniAStarAdapter";
 
 export enum PathStatus {
   NEXT,
@@ -10,26 +10,24 @@ export enum PathStatus {
 }
 
 export type PathResult =
-  | { status: PathStatus.NEXT; node: TileRef }
   | { status: PathStatus.PENDING }
+  | { status: PathStatus.NEXT; node: TileRef }
   | { status: PathStatus.COMPLETE; node: TileRef }
   | { status: PathStatus.NOT_FOUND };
 
 export interface PathFinder {
   next(from: TileRef, to: TileRef, dist?: number): PathResult;
+  findPath(from: TileRef, to: TileRef): TileRef[] | null;
 }
 
-export interface PathFinderOptions {
+export interface MiniAStarOptions {
+  waterPath?: boolean;
   iterations?: number;
   maxTries?: number;
 }
 
 export class PathFinders {
-  static Water(game: Game, options?: PathFinderOptions): PathFinder {
-    return new MiniAdapter(game, true, options);
-  }
-
-  static Land(game: Game, options?: PathFinderOptions): PathFinder {
-    return new MiniAdapter(game, false, options);
+  static Water(game: Game, options?: MiniAStarOptions): PathFinder {
+    return new MiniAStarAdapter(game, options);
   }
 }
