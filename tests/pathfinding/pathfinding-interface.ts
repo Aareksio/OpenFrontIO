@@ -1,7 +1,7 @@
 import { Game } from "../../src/core/game/Game";
 import { TileRef } from "../../src/core/game/GameMap";
 import { NavigationSatellite } from "../../src/core/pathfinding/experimental/navigation-satellite/NavigationSatelitte";
-import { PathFinder } from "../../src/core/pathfinding/PathFinding";
+import { MiniPathFinder } from "../../src/core/pathfinding/PathFinding";
 import { PathFindResultType } from "../../src/core/pathfinding/AStar";
 import { boatPathFromTileToShore, boatPathFromTileToWater } from '../../src/core/pathfinding/experimental/vimacs/TransportShipUtils';
 
@@ -44,7 +44,7 @@ export class PathFinderMiniAdapter implements PathfindingInterface {
 
   findPath(from: TileRef, to: TileRef): TileRef[] | null {
     try {
-      const pathfinder = PathFinder.Mini(this.game, this.maxIterations, true, 20);
+      const pathfinder = new MiniPathFinder(this.game, this.maxIterations, true, 20);
       const path: TileRef[] = [from];
       let current = from;
 

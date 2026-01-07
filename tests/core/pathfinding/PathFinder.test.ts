@@ -1,12 +1,8 @@
 import { describe, test, expect, vi } from "vitest";
-import { PathFinder } from "../../../src/core/pathfinding/PathFinding";
-import { PathFindResultType } from "../../../src/core/pathfinding/AStar";
+import { PathFinder, PathFinders, PathStatus } from "../../../src/core/pathfinding/PathFinder";
 import { TileRef } from "../../../src/core/game/GameMap";
 import { mapFromString } from "./utils";
 import { setup } from "../../util/Setup";
-
-const DEFAULT_ITERATIONS = 10_000;
-const DEFAULT_TRIES = 1;
 
 function navigateTo(
   pathFinder: PathFinder,
@@ -14,26 +10,26 @@ function navigateTo(
   to: TileRef,
   maxIter = 100
 ): { reached: boolean; notFound: boolean; pos: TileRef; steps: number; path: TileRef[] } {
-  const status = { 
-    reached: false, 
-    notFound: false, 
-    pos: from, 
-    steps: 0, 
-    path: [] as TileRef[] 
+  const status = {
+    reached: false,
+    notFound: false,
+    pos: from,
+    steps: 0,
+    path: [] as TileRef[]
   };
 
   for (let i = 0; i < maxIter; i++) {
-    const result = pathFinder.nextTile(status.pos, to);
+    const result = pathFinder.next(status.pos, to);
 
-    if (result.type === PathFindResultType.NextTile) {
+    if (result.status === PathStatus.NEXT) {
       status.path.push(result.node);
       status.pos = result.node;
       status.steps++;
-    } else if (result.type === PathFindResultType.Completed) {
+    } else if (result.status === PathStatus.COMPLETE) {
       status.path.push(result.node);
       status.reached = true;
       return status;
-    } else if (result.type === PathFindResultType.PathNotFound) {
+    } else if (result.status === PathStatus.NOT_FOUND) {
       status.notFound = true;
       return status;
     }
@@ -43,20 +39,20 @@ function navigateTo(
 }
 
 describe("PathFinder state machine tests", () => {
-  describe("nextTile() basic behavior", () => {
-    test("returns NextTile on first call", async () => {
+  describe("next() basic behavior", () => {
+    test("returns next on first call", async () => {
       const game = await mapFromString(["WWWW"]);
-      const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+      const pathFinder = PathFinders.Water(game);
       const src = game.map().ref(0, 0);
       const dst = game.map().ref(3, 0);
 
-      const result = pathFinder.nextTile(src, dst);
-      expect(result.type).toBe(PathFindResultType.NextTile);
+      const result = pathFinder.next(src, dst);
+      expect(result.status).toBe(PathStatus.NEXT);
     });
 
-    test("returns Completed when destination reached", async () => {
+    test("returns complete when destination reached", async () => {
       const game = await mapFromString(["WWWW"]);
-      const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+      const pathFinder = PathFinders.Water(game);
       const src = game.map().ref(0, 0);
       const dst = game.map().ref(3, 0);
 
@@ -64,25 +60,25 @@ describe("PathFinder state machine tests", () => {
       expect(result.reached).toBe(true);
     });
 
-    test("returns Completed immediately when already at destination", async () => {
+    test("returns complete immediately when already at destination", async () => {
       const game = await mapFromString(["WWWW"]);
-      const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+      const pathFinder = PathFinders.Water(game);
       const src = game.map().ref(0, 0);
 
-      const result = pathFinder.nextTile(src, src, 1);
-      expect(result.type).toBe(PathFindResultType.Completed);
+      const result = pathFinder.next(src, src, 1);
+      expect(result.status).toBe(PathStatus.COMPLETE);
 
-      if (result.type === PathFindResultType.Completed) {
+      if (result.status === PathStatus.COMPLETE) {
         expect(result.node).toBe(src);
       }
     });
 
     test("subsequent calls continue path", async () => {
       const game = await mapFromString(["WWWW"]);
-      const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+      const pathFinder = PathFinders.Water(game);
       const src = game.map().ref(0, 0);
       const dst = game.map().ref(3, 0);
-      
+
       const result = navigateTo(pathFinder, src, dst);
       expect(result.reached).toBe(true);
       expect(result.pos).toBe(dst);
@@ -96,7 +92,7 @@ describe("PathFinder state machine tests", () => {
         "WWWWWWWW", // 8 wide
       ]);
 
-      const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+      const pathFinder = PathFinders.Water(game);
       const src = game.map().ref(0, 0);
       const dst1 = game.map().ref(4, 0);
       const dst2 = game.map().ref(7, 0);
@@ -114,18 +110,18 @@ describe("PathFinder state machine tests", () => {
         "WWWWWWWWWWWWWWWWWWWW", // 20 wide
       ]);
 
-      const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+      const pathFinder = PathFinders.Water(game);
       const src = game.map().ref(0, 0);
       const dst1 = game.map().ref(10, 0);
       const dst2 = game.map().ref(19, 0);
 
       // Start pathing to dst1
-      const result1 = pathFinder.nextTile(src, dst1);
-      expect(result1.type).toBe(PathFindResultType.NextTile);
+      const result1 = pathFinder.next(src, dst1);
+      expect(result1.status).toBe(PathStatus.NEXT);
 
       // Change to far destination (should trigger recompute)
-      const result2 = pathFinder.nextTile(src, dst2);
-      expect(result2.type).toBe(PathFindResultType.NextTile);
+      const result2 = pathFinder.next(src, dst2);
+      expect(result2.status).toBe(PathStatus.NEXT);
 
       // Eventually should reach dst2
       const nav = navigateTo(pathFinder, src, dst2);
@@ -134,40 +130,40 @@ describe("PathFinder state machine tests", () => {
   });
 
   describe("Error handling", () => {
-    test("returns PathNotFound for null source", async () => {
+    test("returns not-found for null source", async () => {
       const game = await mapFromString(["WWWW"]);
-      const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+      const pathFinder = PathFinders.Water(game);
       const dst = game.map().ref(0, 0);
 
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const result = pathFinder.nextTile(null, dst);
-      expect(result.type).toBe(PathFindResultType.PathNotFound);
+      const result = pathFinder.next(null as unknown as TileRef, dst);
+      expect(result.status).toBe(PathStatus.NOT_FOUND);
 
       consoleSpy.mockRestore();
     });
 
-    test("returns PathNotFound for null destination", async () => {
+    test("returns not-found for null destination", async () => {
       const game = await mapFromString(["WWWW"]);
-      const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+      const pathFinder = PathFinders.Water(game);
       const src = game.map().ref(0, 0);
 
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const result = pathFinder.nextTile(src, null);
-      expect(result.type).toBe(PathFindResultType.PathNotFound);
+      const result = pathFinder.next(src, null as unknown as TileRef);
+      expect(result.status).toBe(PathStatus.NOT_FOUND);
 
       consoleSpy.mockRestore();
     });
   });
 
   describe("Bugs", () => {
-    test.skip("returns PathNotFound when no path exists", async () => {
+    test.skip("returns not-found when no path exists", async () => {
       // Expected to fail until we implement pathing that
       // is aware of upscaling from miniMap to main map.
 
       const game = await mapFromString(["WLLW"]);
-      const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+      const pathFinder = PathFinders.Water(game);
       const src = game.map().ref(0, 0);
       const dst = game.map().ref(3, 0);
 
@@ -184,7 +180,7 @@ describe("PathFinder world map tests", () => {
 
   test("finds path Spain to France (Mediterranean)", async () => {
     const game = await setup("world");
-    const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+    const pathFinder = PathFinders.Water(game);
 
     const src = game.ref(926, 283); // Spain east coast
     const dst = game.ref(950, 257); // France south coast
@@ -196,7 +192,7 @@ describe("PathFinder world map tests", () => {
 
   test("finds path Miami to Rio (Atlantic)", async () => {
     const game = await setup("world");
-    const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+    const pathFinder = PathFinders.Water(game);
 
     const src = game.ref(488, 355); // Miami
     const dst = game.ref(680, 658); // Rio
@@ -208,7 +204,7 @@ describe("PathFinder world map tests", () => {
 
   test("finds path France to Poland (around Europe)", async () => {
     const game = await setup("world");
-    const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+    const pathFinder = PathFinders.Water(game);
 
     const src = game.ref(950, 257); // France south coast
     const dst = game.ref(1033, 175); // Poland north coast
@@ -220,7 +216,7 @@ describe("PathFinder world map tests", () => {
 
   test("finds path Miami to Spain (transatlantic)", async () => {
     const game = await setup("world");
-    const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+    const pathFinder = PathFinders.Water(game);
 
     const src = game.ref(488, 355); // Miami
     const dst = game.ref(926, 283); // Spain east coast
@@ -232,7 +228,7 @@ describe("PathFinder world map tests", () => {
 
   test("finds path Rio to Poland (South Atlantic to Baltic)", async () => {
     const game = await setup("world");
-    const pathFinder = PathFinder.Mini(game, DEFAULT_ITERATIONS, true, DEFAULT_TRIES);
+    const pathFinder = PathFinders.Water(game);
 
     const src = game.ref(680, 658); // Rio
     const dst = game.ref(1033, 175); // Poland north coast
