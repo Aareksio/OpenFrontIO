@@ -20,7 +20,7 @@ import { setupFromPath } from "../utils";
 
 const currentFile = fileURLToPath(import.meta.url);
 const pathfindingDir = dirname(currentFile);
-const projectRoot = join(pathfindingDir, "../..");
+const projectRoot = join(pathfindingDir, "../../..");
 const mapsDirectory = join(projectRoot, "resources/maps");
 const scenariosDir = join(pathfindingDir, "scenarios", "synthetic");
 
