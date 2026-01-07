@@ -30,7 +30,7 @@ import {
   printHeader,
   getScenario,
   printRow,
-} from './utils';
+} from '../utils';
 
 const currentFile = fileURLToPath(import.meta.url);
 const pathfindingDir = dirname(currentFile);
@@ -41,11 +41,12 @@ interface RunOptions {
   iterations?: number;
 }
 
-const DEFAULT_ADAPTER = "NavSat";
+const DEFAULT_ADAPTER = "default";
 const DEFAULT_SCENARIO = "default";
+const DEFAULT_ITERATIONS = 10;
 
 async function runScenario(adapterName: string, scenarioName: string, options: RunOptions = {}) {
-  const { game, routes, performanceIterations, initTime } = await getScenario(scenarioName);
+  const { game, routes, initTime } = await getScenario(scenarioName, adapterName);
   const adapter = getAdapter(game, adapterName);
   const { silent = false } = options;
 
@@ -107,7 +108,7 @@ async function runScenario(adapterName: string, scenarioName: string, options: R
     const result = results.find(r => r.route === route.name);
 
     if (result && result.pathLength !== null) {
-      const execTime = measureExecutionTime(adapter, route, options.iterations ?? performanceIterations);
+      const execTime = measureExecutionTime(adapter, route, options.iterations ?? DEFAULT_ITERATIONS);
       result.executionTime = execTime;
 
       if (!silent) {

@@ -1,8 +1,4 @@
-import { dirname, join } from "path";
-import { fileURLToPath } from "url";
-import { setup } from "../../util/Setup";
-
-export const PERFORMANCE_ITERATIONS = 25
+export const MAP_NAME = "giantworldmap";
 
 export const PORTS: { [k: string]: [number, number] } = {
   "Miami": [1014, 694],
@@ -57,8 +53,3 @@ export const ROUTES: Array<[keyof typeof PORTS, keyof typeof PORTS]> = [
   ["Peru River", "China Desert River"],
   ["China Desert River", "Australia River"],
 ];
-
-export async function setupGame() {
-  const localDir = join(dirname(fileURLToPath(import.meta.url)), "..");
-  return await setup("giantworldmap", {}, [], localDir);
-}

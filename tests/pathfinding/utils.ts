@@ -1,5 +1,7 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 import { Game, Difficulty, GameMapSize, GameMapType, GameMode, GameType, PlayerInfo } from '../../src/core/game/Game';
 import { TileRef } from '../../src/core/game/GameMap';
 import { PathFinder, PathFinders } from '../../src/core/pathfinding/PathFinder';
@@ -8,8 +10,6 @@ import { genTerrainFromBin, MapManifest } from '../../src/core/game/TerrainMapLo
 import { UserSettings } from '../../src/core/game/UserSettings';
 import { GameConfig } from '../../src/core/Schemas';
 import { TestConfig } from '../util/TestConfig';
-
-export const DEFAULT_ITERATIONS = 100
 
 export type BenchmarkRoute = {
   name: string,
@@ -37,9 +37,9 @@ export function getAdapter(
   name: string,
 ): PathFinder {
   switch (name) {
-    case "PF.Mini":
+    case "legacy":
       return PathFinders.WaterLegacy(game);
-    case "NavSat":
+    case "default":
       return PathFinders.Water(game);
     default:
       throw new Error(`Unknown pathfinding adapter: ${name}`);
@@ -48,12 +48,17 @@ export function getAdapter(
 
 export async function getScenario(
   scenarioName: string,
+  adapterName: string = "default",
 ) {
-  const scenario = await import(`./scenarios/${scenarioName}.js`);
+  const scenario = await import(`./benchmark/scenarios/${scenarioName}.js`);
+  const enableNavMesh = adapterName === "default";
 
-  // Time game creation (includes NavMesh initialization)
+  // Time game creation (includes NavMesh initialization for default adapter)
   const start = performance.now();
-  const game = await scenario.setupGame();
+  const currentDir = dirname(fileURLToPath(import.meta.url));
+  const projectRoot = path.join(currentDir, "../..");
+  const mapsDirectory = path.join(projectRoot, "resources/maps");
+  const game = await setupFromPath(mapsDirectory, scenario.MAP_NAME, { disableNavMesh: !enableNavMesh });
   const initTime = performance.now() - start;
 
   const routes = scenario.ROUTES.map(
@@ -72,7 +77,6 @@ export async function getScenario(
   return {
     game,
     routes,
-    performanceIterations: scenario.PERFORMANCE_ITERATIONS ?? DEFAULT_ITERATIONS,
     initTime,
   };
 }
@@ -95,7 +99,7 @@ export function measureTime<T>(fn: () => T): { result: T; time: number } {
 export function measureExecutionTime(
   adapter: PathFinder,
   route: BenchmarkRoute,
-  executions: number = 100,
+  executions: number = 1,
 ): number | null {
   const { time } = measureTime(() => {
     for (let i = 0; i < executions; i++) {
