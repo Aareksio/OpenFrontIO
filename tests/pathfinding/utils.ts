@@ -38,7 +38,7 @@ export function getAdapter(
 ): PathFinder {
   switch (name) {
     case "legacy":
-      return PathFinders.WaterLegacy(game);
+      return PathFinders.WaterLegacy(game, { iterations: 500_000, maxTries: 50 });
     case "default":
       return PathFinders.Water(game);
     default:
