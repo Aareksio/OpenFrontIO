@@ -964,10 +964,7 @@ export class GameImpl implements Game {
   railNetwork(): RailNetwork {
     return this._railNetwork;
   }
-  navMesh(): NavMesh {
-    if (this._navMesh === null) {
-      throw new Error("NavMesh not initialized. Set disableNavMesh=false in config.");
-    }
+  navMesh(): NavMesh | null {
     return this._navMesh;
   }
   conquerPlayer(conqueror: Player, conquered: Player) {

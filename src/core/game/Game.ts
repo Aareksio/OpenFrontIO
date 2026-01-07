@@ -782,7 +782,7 @@ export interface Game extends GameMap {
   addUpdate(update: GameUpdate): void;
   railNetwork(): RailNetwork;
   conquerPlayer(conqueror: Player, conquered: Player): void;
-  navMesh(): NavMesh;
+  navMesh(): NavMesh | null;
 }
 
 export interface PlayerActions {
