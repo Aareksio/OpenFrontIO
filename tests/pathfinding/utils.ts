@@ -17,6 +17,7 @@ import {
   MapManifest,
 } from "../../src/core/game/TerrainMapLoader";
 import { UserSettings } from "../../src/core/game/UserSettings";
+import { GeneralAStarPathFinder } from "../../src/core/pathfinding/experimental/GeneralAStarAdapter";
 import { GridAStarAdapter } from "../../src/core/pathfinding/experimental/GridAStarAdapter";
 import { NavMesh } from "../../src/core/pathfinding/navmesh/NavMesh";
 import { PathFinder, PathFinders } from "../../src/core/pathfinding/PathFinder";
@@ -53,6 +54,10 @@ export function getAdapter(game: Game, name: string): PathFinder {
       });
     case "a.baseline":
       return new GridAStarAdapter(game, {
+        maxIterations: 500_000,
+      });
+    case "a.general":
+      return new GeneralAStarPathFinder(game, {
         maxIterations: 500_000,
       });
     case "hpa": {

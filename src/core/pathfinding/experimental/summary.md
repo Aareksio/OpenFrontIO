@@ -14,7 +14,8 @@ Benchmark: `npx tsx ./tests/pathfinding/benchmark/run.ts --synthetic --all [adap
 |---------|------|------|-------|
 | `hpa.cached` | 217ms | 233ms | HPA with path caching. Requires preprocessing. Production default. |
 | `hpa` | 212ms | 604ms | HPA without caching. Requires preprocessing. |
-| `a.baseline` | ~100ms | 489ms | Bucket queue + direct terrain + cost=1. Best online. |
+| `a.baseline` | ~100ms | 484ms | Bucket queue + direct terrain + cost=1. Best online. |
+| `a.general` | ~100ms | 557ms | Generic graph interface. 15% slower than baseline. |
 
 **Note:** `a.legacy` exists but is 50x slower (65s) - don't benchmark.
 
@@ -71,11 +72,34 @@ Effects are roughly additive. Total speedup: 62% (1294ms → 489ms).
 - `PriorityQueue.ts` - interface + MinHeap + BucketQueue implementations
 - `GridAStar.ts` - optimized grid A* with inlined neighbors, direct terrain access
 - `GridAStarAdapter.ts` - PathFinder adapter for GridAStar
+- `GeneralAStar.ts` - generic A* with adapter interface (neighbors, cost, heuristic)
+- `GeneralAStarAdapter.ts` - PathFinder adapter + GridGraphAdapter for benchmarking
 
 **Philosophy:**
-- `FastAStar` (navmesh) = generic adapter-based graph A*
+- `FastAStar` (navmesh) = generic adapter-based graph A* with MinHeap
 - `GridAStar` (experimental) = specialized version with inlined ops for grids
-- Both conceptually same algorithm; GridAStar is hand-optimized specialization
+- `GeneralAStar` (experimental) = generic graph A* with BucketQueue + stamp arrays
+- GridAStar is hand-optimized specialization of GeneralAStar (15% faster)
+
+## Generalization Cost
+
+`a.general` vs `a.baseline`: 557ms vs 484ms = **15% slower**
+
+| Approach | Time | vs Baseline |
+|----------|------|-------------|
+| Array alloc per expansion | 643ms | +33% |
+| Callback per neighbor | 700ms | +45% (worse!) |
+| Reusable `number[]` buffer | 581ms | +20% |
+| Reusable `Int32Array` buffer | 563ms | +16% |
+| **+ Goal coord caching** | 557ms | **+15%** (best) |
+
+Findings:
+- Callback overhead > array GC pressure
+- TypedArray buffer faster than JS array
+- Caching goal coords saves 2 modulos per heuristic call
+- Branch-based caching slower than explicit setGoal()
+
+Kept: BucketQueue, stamp arrays, Int32Array buffer, goal caching via setGoal().
 
 ## Future Unification with NavMesh
 
