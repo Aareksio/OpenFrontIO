@@ -17,20 +17,20 @@ npx tsx ./tests/pathfinding/benchmark/run.ts --synthetic --all [adapter]
 
 ## Code Organization
 
-| File                  | Purpose                                              |
-| --------------------- | ---------------------------------------------------- |
-| `AStarPathFinder.ts`  | `AStar` interface + PathFinder adapter               |
-| `GenericAStar.ts`     | Generic A\* with `AStarAdapter` + `GridGenericAStar` |
-| `GridAStar.ts`        | Fully inlined A\* for performance                    |
-| `MiniAStarWrapper.ts` | Minimap conversion + path upscaling                  |
-| `PriorityQueue.ts`    | MinHeap + BucketQueue                                |
+| File                 | Purpose                                    |
+| -------------------- | ------------------------------------------ |
+| `AStar.ts`           | `AStar` interface, `GenericAStar`, adapters |
+| `GameMapAStar.ts`    | Fully inlined A\* for performance          |
+| `AStarPathFinder.ts` | PathFinder adapter                         |
+| `MiniAStar.ts`       | Minimap conversion + path upscaling        |
+| `PriorityQueue.ts`   | MinHeap + BucketQueue                      |
 
 ### Architecture
 
 ```
 AStarPathFinder
-    └── MiniAStarWrapper (game↔minimap conversion, upscaling)
-        └── GridAStar / GridGenericAStar (implements AStar, takes GameMap)
+    └── MiniAStar (game↔minimap, factory: (map) => AStar)
+        └── GameMapAStar / GenericAStar (implements AStar, takes GameMap)
 ```
 
 ## Optimization Results
