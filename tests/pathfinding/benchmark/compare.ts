@@ -36,7 +36,10 @@ async function runBenchmark(
   scenarioName: string,
   adapterName: string,
 ): Promise<AdapterResults> {
-  const { game, routes, initTime } = await getScenario(scenarioName, adapterName);
+  const { game, routes, initTime } = await getScenario(
+    scenarioName,
+    adapterName,
+  );
   const adapter = getAdapter(game, adapterName);
 
   const results: BenchmarkResult[] = [];
@@ -68,7 +71,14 @@ async function runBenchmark(
   };
 }
 
-const TABLE_HEADERS = ["Adapter", "Init (ms)", "Path (ms)", "Distance", "Routes"];
+const TABLE_HEADERS = [
+  "Adapter",
+  "Init (ms)",
+  "Path (ms)",
+  "Distance",
+  "Routes",
+];
+
 const TABLE_WIDTHS = [20, 12, 12, 12, 10];
 
 function printTableHeader(scenarioName: string) {
@@ -143,7 +153,9 @@ async function main() {
 
   const scenarioName = isSynthetic ? `synthetic/${scenarioArg}` : scenarioArg;
 
-  console.log(`Comparing ${adapters.length} adapters on scenario: ${scenarioName}`);
+  console.log(
+    `Comparing ${adapters.length} adapters on scenario: ${scenarioName}`,
+  );
   console.log(`Adapters: ${adapters.join(", ")}`);
   console.log("");
 

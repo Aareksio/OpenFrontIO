@@ -17,12 +17,18 @@ import {
   MapManifest,
 } from "../../src/core/game/TerrainMapLoader";
 import { UserSettings } from "../../src/core/game/UserSettings";
-import { GeneralAStarPathFinder } from "../../src/core/pathfinding/experimental/GeneralAStarAdapter";
-import { GridAStarAdapter } from "../../src/core/pathfinding/experimental/GridAStarAdapter";
+import {
+  GenericAStar,
+  WaterGridAdapter,
+} from "../../src/core/pathfinding/experimental/AStar";
+import { AStarPathFinder } from "../../src/core/pathfinding/experimental/AStarPathFinder";
+import { GameMapAStar } from "../../src/core/pathfinding/experimental/GameMapAStar";
+import { MiniAStar } from "../../src/core/pathfinding/experimental/MiniAStar";
 import { NavMesh } from "../../src/core/pathfinding/navmesh/NavMesh";
 import { PathFinder, PathFinders } from "../../src/core/pathfinding/PathFinder";
 import { GameConfig } from "../../src/core/Schemas";
 import { TestConfig } from "../util/TestConfig";
+
 export type BenchmarkRoute = {
   name: string;
   from: TileRef;
@@ -52,14 +58,27 @@ export function getAdapter(game: Game, name: string): PathFinder {
         iterations: 500_000,
         maxTries: 50,
       });
-    case "a.baseline":
-      return new GridAStarAdapter(game, {
-        maxIterations: 500_000,
-      });
-    case "a.general":
-      return new GeneralAStarPathFinder(game, {
-        maxIterations: 500_000,
-      });
+    case "a.baseline": {
+      return new AStarPathFinder(
+        game,
+        new MiniAStar(game, (map) => new GameMapAStar(map)),
+      );
+    }
+    case "a.generic": {
+      return new AStarPathFinder(
+        game,
+        new MiniAStar(game, (map) => {
+          const adapter = new WaterGridAdapter(map);
+          return new GenericAStar({ adapter });
+        }),
+      );
+    }
+    case "a.full": {
+      return new AStarPathFinder(
+        game,
+        new GameMapAStar(game.map()),
+      );
+    }
     case "hpa": {
       // Recreate NavMesh without cache, this approach was chosen
       // over adding cache toggles to the existing game instance

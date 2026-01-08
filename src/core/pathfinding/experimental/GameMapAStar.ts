@@ -1,20 +1,19 @@
-// Grid A* with bucket queue, uniform cost, and direct terrain access
-// Optimized for naval pathfinding where all water tiles have cost = 1
+// Optimized - fully inlined - A* for GameMap pathfinding
 
+import { GameMap, TileRef } from "../../game/GameMap";
+import { AStar } from "./AStar";
 import { BucketQueue, PriorityQueue } from "./PriorityQueue";
 
 const LAND_BIT = 7; // Bit 7 in terrain indicates land
 
-export interface GridAStarConfig {
-  terrain: Uint8Array;
-  width: number;
-  height: number;
-  heuristicWeight?: number; // Default: 15
-  maxIterations?: number; // Default: 500_000
+export interface GameMapAStarConfig {
+  heuristicWeight?: number;
+  maxIterations?: number;
 }
 
-export class GridAStar {
+export class GameMapAStar implements AStar {
   private stamp = 1;
+
   private readonly closedStamp: Uint32Array;
   private readonly gScoreStamp: Uint32Array;
   private readonly gScore: Uint32Array;
@@ -26,12 +25,12 @@ export class GridAStar {
   private readonly heuristicWeight: number;
   private readonly maxIterations: number;
 
-  constructor(config: GridAStarConfig) {
-    this.terrain = config.terrain;
-    this.width = config.width;
-    this.numNodes = config.width * config.height;
-    this.heuristicWeight = config.heuristicWeight ?? 15;
-    this.maxIterations = config.maxIterations ?? 500_000;
+  constructor(map: GameMap, config?: GameMapAStarConfig) {
+    this.terrain = (map as any).terrain as Uint8Array;
+    this.width = map.width();
+    this.numNodes = map.width() * map.height();
+    this.heuristicWeight = config?.heuristicWeight ?? 15;
+    this.maxIterations = config?.maxIterations ?? 1_000_000;
 
     this.closedStamp = new Uint32Array(this.numNodes);
     this.gScoreStamp = new Uint32Array(this.numNodes);
@@ -39,7 +38,7 @@ export class GridAStar {
     this.cameFrom = new Int32Array(this.numNodes);
 
     // BucketQueue with max f = weight * (width + height)
-    const maxF = this.heuristicWeight * (config.width + config.height);
+    const maxF = this.heuristicWeight * (map.width() + map.height());
     this.queue = new BucketQueue(maxF);
   }
 
@@ -76,7 +75,8 @@ export class GridAStar {
 
     const startX = start % width;
     const startY = (start / width) | 0;
-    const startH = weight * (Math.abs(startX - goalX) + Math.abs(startY - goalY));
+    const startH =
+      weight * (Math.abs(startX - goalX) + Math.abs(startY - goalY));
     queue.push(start, startH);
 
     let iterations = this.maxIterations;
@@ -106,13 +106,18 @@ export class GridAStar {
           closedStamp[neighbor] !== stamp &&
           (neighbor === goal || (terrain[neighbor] & landMask) === 0)
         ) {
-          if (gScoreStamp[neighbor] !== stamp || tentativeG < gScore[neighbor]) {
+          if (
+            gScoreStamp[neighbor] !== stamp ||
+            tentativeG < gScore[neighbor]
+          ) {
             cameFrom[neighbor] = current;
             gScore[neighbor] = tentativeG;
             gScoreStamp[neighbor] = stamp;
             const nx = neighbor % width;
             const ny = (neighbor / width) | 0;
-            const f = tentativeG + weight * (Math.abs(nx - goalX) + Math.abs(ny - goalY));
+            const f =
+              tentativeG +
+              weight * (Math.abs(nx - goalX) + Math.abs(ny - goalY));
             queue.push(neighbor, f);
           }
         }
@@ -125,13 +130,18 @@ export class GridAStar {
           closedStamp[neighbor] !== stamp &&
           (neighbor === goal || (terrain[neighbor] & landMask) === 0)
         ) {
-          if (gScoreStamp[neighbor] !== stamp || tentativeG < gScore[neighbor]) {
+          if (
+            gScoreStamp[neighbor] !== stamp ||
+            tentativeG < gScore[neighbor]
+          ) {
             cameFrom[neighbor] = current;
             gScore[neighbor] = tentativeG;
             gScoreStamp[neighbor] = stamp;
             const nx = neighbor % width;
             const ny = (neighbor / width) | 0;
-            const f = tentativeG + weight * (Math.abs(nx - goalX) + Math.abs(ny - goalY));
+            const f =
+              tentativeG +
+              weight * (Math.abs(nx - goalX) + Math.abs(ny - goalY));
             queue.push(neighbor, f);
           }
         }
@@ -144,12 +154,17 @@ export class GridAStar {
           closedStamp[neighbor] !== stamp &&
           (neighbor === goal || (terrain[neighbor] & landMask) === 0)
         ) {
-          if (gScoreStamp[neighbor] !== stamp || tentativeG < gScore[neighbor]) {
+          if (
+            gScoreStamp[neighbor] !== stamp ||
+            tentativeG < gScore[neighbor]
+          ) {
             cameFrom[neighbor] = current;
             gScore[neighbor] = tentativeG;
             gScoreStamp[neighbor] = stamp;
             const ny = (neighbor / width) | 0;
-            const f = tentativeG + weight * (Math.abs(currentX - 1 - goalX) + Math.abs(ny - goalY));
+            const f =
+              tentativeG +
+              weight * (Math.abs(currentX - 1 - goalX) + Math.abs(ny - goalY));
             queue.push(neighbor, f);
           }
         }
@@ -162,12 +177,17 @@ export class GridAStar {
           closedStamp[neighbor] !== stamp &&
           (neighbor === goal || (terrain[neighbor] & landMask) === 0)
         ) {
-          if (gScoreStamp[neighbor] !== stamp || tentativeG < gScore[neighbor]) {
+          if (
+            gScoreStamp[neighbor] !== stamp ||
+            tentativeG < gScore[neighbor]
+          ) {
             cameFrom[neighbor] = current;
             gScore[neighbor] = tentativeG;
             gScoreStamp[neighbor] = stamp;
             const ny = (neighbor / width) | 0;
-            const f = tentativeG + weight * (Math.abs(currentX + 1 - goalX) + Math.abs(ny - goalY));
+            const f =
+              tentativeG +
+              weight * (Math.abs(currentX + 1 - goalX) + Math.abs(ny - goalY));
             queue.push(neighbor, f);
           }
         }
@@ -177,12 +197,12 @@ export class GridAStar {
     return null; // No path found
   }
 
-  private buildPath(start: number, goal: number): number[] {
-    const path: number[] = [];
+  private buildPath(start: number, goal: number): TileRef[] {
+    const path: TileRef[] = [];
     let current = goal;
 
     while (current !== -1) {
-      path.push(current);
+      path.push(current as TileRef);
       current = this.cameFrom[current];
     }
 

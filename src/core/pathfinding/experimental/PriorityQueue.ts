@@ -1,5 +1,3 @@
-// Priority queue interface and implementations for A* pathfinding
-
 export interface PriorityQueue {
   push(node: number, priority: number): void;
   pop(): number;
@@ -52,10 +50,16 @@ export class MinHeap implements PriorityQueue {
         const right = left + 1;
         let smallest = i;
 
-        if (left < this.size && this.priorities[left] < this.priorities[smallest]) {
+        if (
+          left < this.size &&
+          this.priorities[left] < this.priorities[smallest]
+        ) {
           smallest = left;
         }
-        if (right < this.size && this.priorities[right] < this.priorities[smallest]) {
+        if (
+          right < this.size &&
+          this.priorities[right] < this.priorities[smallest]
+        ) {
           smallest = right;
         }
         if (smallest === i) break;
@@ -82,7 +86,7 @@ export class MinHeap implements PriorityQueue {
   }
 }
 
-// Bucket queue: O(1) push/pop when priorities are bounded integers
+// Bucket queue: O(1) push/pop when priorities are integers
 export class BucketQueue implements PriorityQueue {
   private buckets: Int32Array[];
   private bucketSizes: Int32Array;
