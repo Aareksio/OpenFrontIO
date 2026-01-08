@@ -17,6 +17,7 @@ import {
   MapManifest,
 } from "../../src/core/game/TerrainMapLoader";
 import { UserSettings } from "../../src/core/game/UserSettings";
+import { OptimizedAStarAdapter } from "../../src/core/pathfinding/experimental/OptimizedAStarAdapter";
 import { NavMesh } from "../../src/core/pathfinding/navmesh/NavMesh";
 import { PathFinder, PathFinders } from "../../src/core/pathfinding/PathFinder";
 import { GameConfig } from "../../src/core/Schemas";
@@ -46,6 +47,11 @@ export function getAdapter(game: Game, name: string): PathFinder {
   switch (name) {
     case "legacy":
       return PathFinders.WaterLegacy(game, {
+        iterations: 500_000,
+        maxTries: 50,
+      });
+    case "a.optimized":
+      return new OptimizedAStarAdapter(game, {
         iterations: 500_000,
         maxTries: 50,
       });
