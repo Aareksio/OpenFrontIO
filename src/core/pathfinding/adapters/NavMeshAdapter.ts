@@ -11,9 +11,11 @@ export class NavMeshAdapter implements PathFinder {
 
   constructor(private game: Game) {
     const navMesh = game.navMesh();
+
     if (!navMesh) {
       throw new Error("NavMeshAdapter requires game.navMesh() to be available");
     }
+
     this.navMesh = navMesh;
   }
 

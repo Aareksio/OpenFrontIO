@@ -1,39 +1,43 @@
-// NavMesh with optimized inlined A* implementations
-// Uses BoundedAStar and GatewayAStar instead of FastAStar + adapters
+// GameMap HPA* - Hierarchical Pathfinding A* for GameMap
 
 import { Game } from "../../game/Game";
 import { TileRef } from "../../game/GameMap";
 import { FastBFS } from "../navmesh/FastBFS";
-import { Gateway, GatewayGraph, GatewayGraphBuilder } from "../navmesh/GatewayGraph";
+import {
+  AbstractGraph,
+  AbstractGraphBuilder,
+  AbstractNode,
+} from "./AbstractGraph";
+import { AbstractGraphAStar } from "./AbstractGraphAStar";
+import { AStar } from "./AStar";
 import { BoundedAStar } from "./BoundedAStar";
-import { GatewayAStar } from "./GatewayAStar";
 
 type PathDebugInfo = {
-  gatewayPath: TileRef[] | null;
+  nodePath: TileRef[] | null;
   initialPath: TileRef[] | null;
   smoothPath: TileRef[] | null;
   graph: {
-    sectorSize: number;
-    gateways: Array<{ id: number; tile: TileRef }>;
+    clusterSize: number;
+    nodes: Array<{ id: number; tile: TileRef }>;
     edges: Array<{
-      fromId: number;
-      toId: number;
+      id: number;
+      nodeA: number;
+      nodeB: number;
       from: TileRef;
       to: TileRef;
       cost: number;
-      path: TileRef[] | null;
     }>;
   };
   timings: { [key: string]: number };
 };
 
-export class NavMeshOptimized {
-  private graph!: GatewayGraph;
+export class GameMapHPAStar implements AStar {
+  private graph!: AbstractGraph;
   private initialized = false;
   private fastBFS!: FastBFS;
-  private gatewayAStar!: GatewayAStar;
+  private abstractAStar!: AbstractGraphAStar;
   private localAStar!: BoundedAStar;
-  private localAStarMultiSector!: BoundedAStar;
+  private localAStarMultiCluster!: BoundedAStar;
 
   public debugInfo: PathDebugInfo | null = null;
 
@@ -45,40 +49,37 @@ export class NavMeshOptimized {
   ) {}
 
   initialize(debug: boolean = false) {
-    const gatewayGraphBuilder = new GatewayGraphBuilder(
-      this.game,
-      GatewayGraphBuilder.SECTOR_SIZE,
-    );
-    this.graph = gatewayGraphBuilder.build(debug);
-
     const miniMap = this.game.miniMap();
+
+    const graphBuilder = new AbstractGraphBuilder(
+      miniMap,
+      AbstractGraphBuilder.CLUSTER_SIZE,
+    );
+    this.graph = graphBuilder.build(debug);
+
+    // FastBFS for nearest node search
     this.fastBFS = new FastBFS(miniMap.width() * miniMap.height());
 
-    // Use GatewayAStar for gateway graph routing
-    this.gatewayAStar = new GatewayAStar(this.graph, {
-      heuristicWeight: 1,
-      maxIterations: 100_000,
-    });
+    const clusterSize = AbstractGraphBuilder.CLUSTER_SIZE;
 
-    // BoundedAStar for sector-bounded local pathfinding
-    const sectorSize = GatewayGraphBuilder.SECTOR_SIZE;
+    // AbstractGraphAStar for abstract graph routing
+    this.abstractAStar = new AbstractGraphAStar(this.graph);
 
-    // Single sector: 32×32 = 1,024 nodes
-    const maxLocalNodes = sectorSize * sectorSize;
-    this.localAStar = new BoundedAStar(miniMap, maxLocalNodes, {
-      heuristicWeight: 1,
-      maxIterations: 10_000,
-    });
+    // BoundedAStar for cluster-bounded local pathfinding
+    const maxLocalNodes = clusterSize * clusterSize;
+    this.localAStar = new BoundedAStar(miniMap, maxLocalNodes);
 
-    // Multi-sector: 3×3 sectors = 96×96 = 9,216 nodes
-    const multiSectorSize = sectorSize * 3;
-    const maxMultiSectorNodes = multiSectorSize * multiSectorSize;
-    this.localAStarMultiSector = new BoundedAStar(miniMap, maxMultiSectorNodes, {
-      heuristicWeight: 1,
-      maxIterations: 10_000,
-    });
+    // BoundedAStar for multi-cluster (3x3) local pathfinding
+    const multiClusterSize = clusterSize * 3;
+    const maxMultiClusterNodes = multiClusterSize * multiClusterSize;
+    this.localAStarMultiCluster = new BoundedAStar(miniMap, maxMultiClusterNodes);
 
     this.initialized = true;
+  }
+
+  // AStar interface
+  search(from: number, to: number): number[] | null {
+    return this.findPath(from as TileRef, to as TileRef);
   }
 
   findPath(
@@ -88,50 +89,47 @@ export class NavMeshOptimized {
   ): TileRef[] | null {
     if (!this.initialized) {
       throw new Error(
-        "NavMesh not initialized. Call initialize() before using findPath().",
+        "HPA* not initialized. Call initialize() before using findPath().",
       );
     }
 
     if (debug) {
       const allEdges: Array<{
-        fromId: number;
-        toId: number;
+        id: number;
+        nodeA: number;
+        nodeB: number;
         from: TileRef;
         to: TileRef;
         cost: number;
-        path: TileRef[] | null;
       }> = [];
 
-      for (const [fromId, edges] of this.graph.edges.entries()) {
-        const fromGw = this.graph.getGateway(fromId);
-        if (!fromGw) continue;
+      for (let edgeId = 0; edgeId < this.graph.edgeCount; edgeId++) {
+        const edge = this.graph.getEdge(edgeId);
+        if (!edge) continue;
 
-        for (const edge of edges) {
-          const toGw = this.graph.getGateway(edge.to);
-          if (!toGw) continue;
+        const nodeA = this.graph.getNode(edge.nodeA);
+        const nodeB = this.graph.getNode(edge.nodeB);
+        if (!nodeA || !nodeB) continue;
 
-          if (fromId <= edge.to) {
-            allEdges.push({
-              fromId: fromId,
-              toId: edge.to,
-              from: fromGw.tile,
-              to: toGw.tile,
-              cost: edge.cost,
-              path: edge.path ?? null,
-            });
-          }
-        }
+        allEdges.push({
+          id: edge.id,
+          nodeA: edge.nodeA,
+          nodeB: edge.nodeB,
+          from: nodeA.tile,
+          to: nodeB.tile,
+          cost: edge.cost,
+        });
       }
 
       this.debugInfo = {
-        gatewayPath: null,
+        nodePath: null,
         initialPath: null,
         smoothPath: null,
         graph: {
-          sectorSize: this.graph.sectorSize,
-          gateways: this.graph
-            .getAllGateways()
-            .map((gw) => ({ id: gw.id, tile: gw.tile })),
+          clusterSize: this.graph.clusterSize,
+          nodes: this.graph
+            .getAllNodes()
+            .map((node) => ({ id: node.id, tile: node.tile })),
           edges: allEdges,
         },
         timings: {
@@ -143,25 +141,19 @@ export class NavMeshOptimized {
     const dist = this.game.manhattanDist(from, to);
 
     // Early exit for very short distances
-    if (dist <= this.graph.sectorSize) {
-      performance.mark("navsat:findPath:earlyExitLocalPath:start");
+    if (dist <= this.graph.clusterSize) {
+      performance.mark("hpa:findPath:earlyExitLocalPath:start");
       const map = this.game.map();
       const startMiniX = Math.floor(map.x(from) / 2);
       const startMiniY = Math.floor(map.y(from) / 2);
-      const sectorX = Math.floor(startMiniX / this.graph.sectorSize);
-      const sectorY = Math.floor(startMiniY / this.graph.sectorSize);
-      const localPath = this.findLocalPath(
-        from,
-        to,
-        sectorX,
-        sectorY,
-        true,
-      );
-      performance.mark("navsat:findPath:earlyExitLocalPath:end");
+      const clusterX = Math.floor(startMiniX / this.graph.clusterSize);
+      const clusterY = Math.floor(startMiniY / this.graph.clusterSize);
+      const localPath = this.findLocalPath(from, to, clusterX, clusterY, true);
+      performance.mark("hpa:findPath:earlyExitLocalPath:end");
       const measure = performance.measure(
-        "navsat:findPath:earlyExitLocalPath",
-        "navsat:findPath:earlyExitLocalPath:start",
-        "navsat:findPath:earlyExitLocalPath:end",
+        "hpa:findPath:earlyExitLocalPath",
+        "hpa:findPath:earlyExitLocalPath:start",
+        "hpa:findPath:earlyExitLocalPath:end",
       );
 
       if (debug) {
@@ -175,140 +167,133 @@ export class NavMeshOptimized {
             `[DEBUG] Direct local path found for dist=${dist}, length=${localPath.length}`,
           );
         }
-
         return localPath;
       }
 
       if (debug) {
         console.log(
-          `[DEBUG] Direct path failed for dist=${dist}, falling back to gateway graph`,
+          `[DEBUG] Direct path failed for dist=${dist}, falling back to abstract graph`,
         );
       }
     }
 
-    performance.mark("navsat:findPath:findGateways:start");
-    const startGateway = this.findNearestGateway(from);
-    const endGateway = this.findNearestGateway(to);
-    performance.mark("navsat:findPath:findGateways:end");
-    const findGatewaysMeasure = performance.measure(
-      "navsat:findPath:findGateways",
-      "navsat:findPath:findGateways:start",
-      "navsat:findPath:findGateways:end",
+    performance.mark("hpa:findPath:findNodes:start");
+    const startNode = this.findNearestNode(from);
+    const endNode = this.findNearestNode(to);
+    performance.mark("hpa:findPath:findNodes:end");
+    const findNodesMeasure = performance.measure(
+      "hpa:findPath:findNodes",
+      "hpa:findPath:findNodes:start",
+      "hpa:findPath:findNodes:end",
     );
 
     if (debug) {
-      this.debugInfo!.timings.findGateways = findGatewaysMeasure.duration;
-      this.debugInfo!.timings.total += findGatewaysMeasure.duration;
+      this.debugInfo!.timings.findNodes = findNodesMeasure.duration;
+      this.debugInfo!.timings.total += findNodesMeasure.duration;
     }
 
-    if (!startGateway) {
+    if (!startNode) {
       if (debug) {
         console.log(
-          `[DEBUG] Cannot find start gateway for (${this.game.x(from)}, ${this.game.y(from)})`,
+          `[DEBUG] Cannot find start node for (${this.game.x(from)}, ${this.game.y(from)})`,
         );
       }
-
       return null;
     }
 
-    if (!endGateway) {
+    if (!endNode) {
       if (debug) {
         console.log(
-          `[DEBUG] Cannot find end gateway for (${this.game.x(to)}, ${this.game.y(to)})`,
+          `[DEBUG] Cannot find end node for (${this.game.x(to)}, ${this.game.y(to)})`,
         );
       }
-
       return null;
     }
 
-    if (startGateway.id === endGateway.id) {
+    if (startNode.id === endNode.id) {
       if (debug) {
         console.log(
-          `[DEBUG] Start and end gateways are the same (ID=${startGateway.id}), finding local path with multi-sector search`,
+          `[DEBUG] Start and end nodes are the same (ID=${startNode.id}), finding local path with multi-cluster search`,
         );
       }
 
-      performance.mark("navsat:findPath:sameGatewayLocalPath:start");
-      const sectorX = Math.floor(startGateway.x / this.graph.sectorSize);
-      const sectorY = Math.floor(startGateway.y / this.graph.sectorSize);
-      const path = this.findLocalPath(from, to, sectorX, sectorY, true);
-      performance.mark("navsat:findPath:sameGatewayLocalPath:end");
-      const sameGatewayMeasure = performance.measure(
-        "navsat:findPath:sameGatewayLocalPath",
-        "navsat:findPath:sameGatewayLocalPath:start",
-        "navsat:findPath:sameGatewayLocalPath:end",
+      performance.mark("hpa:findPath:sameNodeLocalPath:start");
+      const clusterX = Math.floor(startNode.x / this.graph.clusterSize);
+      const clusterY = Math.floor(startNode.y / this.graph.clusterSize);
+      const path = this.findLocalPath(from, to, clusterX, clusterY, true);
+      performance.mark("hpa:findPath:sameNodeLocalPath:end");
+      const sameNodeMeasure = performance.measure(
+        "hpa:findPath:sameNodeLocalPath",
+        "hpa:findPath:sameNodeLocalPath:start",
+        "hpa:findPath:sameNodeLocalPath:end",
       );
 
       if (debug) {
-        this.debugInfo!.timings.sameGatewayLocalPath =
-          sameGatewayMeasure.duration;
-        this.debugInfo!.timings.total += sameGatewayMeasure.duration;
+        this.debugInfo!.timings.sameNodeLocalPath = sameNodeMeasure.duration;
+        this.debugInfo!.timings.total += sameNodeMeasure.duration;
       }
 
       return path;
     }
 
-    performance.mark("navsat:findPath:findGatewayPath:start");
-    const gatewayPath = this.findGatewayPath(startGateway.id, endGateway.id);
-    performance.mark("navsat:findPath:findGatewayPath:end");
-    const findGatewayPathMeasure = performance.measure(
-      "navsat:findPath:findGatewayPath",
-      "navsat:findPath:findGatewayPath:start",
-      "navsat:findPath:findGatewayPath:end",
+    performance.mark("hpa:findPath:findAbstractPath:start");
+    const nodePath = this.findAbstractPath(startNode.id, endNode.id);
+    performance.mark("hpa:findPath:findAbstractPath:end");
+    const findAbstractPathMeasure = performance.measure(
+      "hpa:findPath:findAbstractPath",
+      "hpa:findPath:findAbstractPath:start",
+      "hpa:findPath:findAbstractPath:end",
     );
 
     if (debug) {
-      this.debugInfo!.timings.findGatewayPath = findGatewayPathMeasure.duration;
-      this.debugInfo!.timings.total += findGatewayPathMeasure.duration;
+      this.debugInfo!.timings.findAbstractPath = findAbstractPathMeasure.duration;
+      this.debugInfo!.timings.total += findAbstractPathMeasure.duration;
 
-      this.debugInfo!.gatewayPath = gatewayPath
-        ? gatewayPath
-            .map((gwId) => {
-              const gw = this.graph.getGateway(gwId);
-              return gw ? gw.tile : -1;
+      this.debugInfo!.nodePath = nodePath
+        ? nodePath
+            .map((nodeId) => {
+              const node = this.graph.getNode(nodeId);
+              return node ? node.tile : -1;
             })
             .filter((tile) => tile !== -1)
         : null;
     }
 
-    if (!gatewayPath) {
+    if (!nodePath) {
       if (debug) {
         console.log(
-          `[DEBUG] No gateway path between gateways ${startGateway.id} and ${endGateway.id}`,
+          `[DEBUG] No abstract path between nodes ${startNode.id} and ${endNode.id}`,
         );
       }
-
       return null;
     }
 
     if (debug) {
-      console.log(
-        `[DEBUG] Gateway path found: ${gatewayPath.length} waypoints`,
-      );
+      console.log(`[DEBUG] Abstract path found: ${nodePath.length} waypoints`);
     }
 
     const initialPath: TileRef[] = [];
     const map = this.game.map();
     const miniMap = this.game.miniMap();
 
-    performance.mark("navsat:findPath:buildInitialPath:start");
+    performance.mark("hpa:findPath:buildInitialPath:start");
 
-    // 1. Find path from start to first gateway
-    const firstGateway = this.graph.getGateway(gatewayPath[0])!;
-    const firstGatewayTile = map.ref(
-      miniMap.x(firstGateway.tile) * 2,
-      miniMap.y(firstGateway.tile) * 2,
+    // 1. Find path from start to first node
+    const firstNode = this.graph.getNode(nodePath[0])!;
+    const firstNodeTile = map.ref(
+      miniMap.x(firstNode.tile) * 2,
+      miniMap.y(firstNode.tile) * 2,
     );
 
     const startMiniX = Math.floor(map.x(from) / 2);
     const startMiniY = Math.floor(map.y(from) / 2);
-    const startSectorX = Math.floor(startMiniX / this.graph.sectorSize);
-    const startSectorY = Math.floor(startMiniY / this.graph.sectorSize);
+    const startClusterX = Math.floor(startMiniX / this.graph.clusterSize);
+    const startClusterY = Math.floor(startMiniY / this.graph.clusterSize);
     const startSegment = this.findLocalPath(
       from,
-      firstGatewayTile,
-      startSectorX,
-      startSectorY,
+      firstNodeTile,
+      startClusterX,
+      startClusterY,
     );
 
     if (!startSegment) {
@@ -317,39 +302,42 @@ export class NavMeshOptimized {
 
     initialPath.push(...startSegment);
 
-    // 2. Build path through gateways
-    for (let i = 0; i < gatewayPath.length - 1; i++) {
-      const fromGwId = gatewayPath[i];
-      const toGwId = gatewayPath[i + 1];
+    // 2. Build path through abstract nodes
+    for (let i = 0; i < nodePath.length - 1; i++) {
+      const fromNodeId = nodePath[i];
+      const toNodeId = nodePath[i + 1];
 
-      const edges = this.graph.getEdges(fromGwId);
-      const edge = edges.find((edge) => edge.to === toGwId);
-
+      const edge = this.graph.getEdgeBetween(fromNodeId, toNodeId);
       if (!edge) {
         return null;
       }
 
-      if (edge.path) {
-        initialPath.push(...edge.path.slice(1));
-        continue;
+      // Check path cache (stored on graph, shared across all instances)
+      if (this.options.cachePaths) {
+        const cachedPath = this.graph.getCachedPath(edge.id);
+        if (cachedPath) {
+          // Path is direction-independent, just skip first tile (already in path)
+          initialPath.push(...cachedPath.slice(1));
+          continue;
+        }
       }
 
-      const fromGw = this.graph.getGateway(fromGwId)!;
-      const toGw = this.graph.getGateway(toGwId)!;
+      const fromNode = this.graph.getNode(fromNodeId)!;
+      const toNode = this.graph.getNode(toNodeId)!;
       const fromTile = map.ref(
-        miniMap.x(fromGw.tile) * 2,
-        miniMap.y(fromGw.tile) * 2,
+        miniMap.x(fromNode.tile) * 2,
+        miniMap.y(fromNode.tile) * 2,
       );
       const toTile = map.ref(
-        miniMap.x(toGw.tile) * 2,
-        miniMap.y(toGw.tile) * 2,
+        miniMap.x(toNode.tile) * 2,
+        miniMap.y(toNode.tile) * 2,
       );
 
       const segmentPath = this.findLocalPath(
         fromTile,
         toTile,
-        edge.sectorX,
-        edge.sectorY,
+        edge.clusterX,
+        edge.clusterY,
       );
 
       if (!segmentPath) {
@@ -358,35 +346,28 @@ export class NavMeshOptimized {
 
       initialPath.push(...segmentPath.slice(1));
 
+      // Cache the path on graph (shared across all instances)
       if (this.options.cachePaths) {
-        edge.path = segmentPath;
-
-        const reverseEdges = this.graph.getEdges(toGwId);
-        const reverseEdge = reverseEdges.find((e) => e.to === fromGwId);
-        if (reverseEdge) {
-          reverseEdge.path = segmentPath.slice().reverse();
-        }
+        this.graph.setCachedPath(edge.id, segmentPath);
       }
     }
 
-    // 3. Find path from last gateway to end
-    const lastGateway = this.graph.getGateway(
-      gatewayPath[gatewayPath.length - 1],
-    )!;
-    const lastGatewayTile = map.ref(
-      miniMap.x(lastGateway.tile) * 2,
-      miniMap.y(lastGateway.tile) * 2,
+    // 3. Find path from last node to end
+    const lastNode = this.graph.getNode(nodePath[nodePath.length - 1])!;
+    const lastNodeTile = map.ref(
+      miniMap.x(lastNode.tile) * 2,
+      miniMap.y(lastNode.tile) * 2,
     );
 
     const endMiniX = Math.floor(map.x(to) / 2);
     const endMiniY = Math.floor(map.y(to) / 2);
-    const endSectorX = Math.floor(endMiniX / this.graph.sectorSize);
-    const endSectorY = Math.floor(endMiniY / this.graph.sectorSize);
+    const endClusterX = Math.floor(endMiniX / this.graph.clusterSize);
+    const endClusterY = Math.floor(endMiniY / this.graph.clusterSize);
     const endSegment = this.findLocalPath(
-      lastGatewayTile,
+      lastNodeTile,
       to,
-      endSectorX,
-      endSectorY,
+      endClusterX,
+      endClusterY,
     );
 
     if (!endSegment) {
@@ -395,28 +376,27 @@ export class NavMeshOptimized {
 
     initialPath.push(...endSegment.slice(1));
 
-    performance.mark("navsat:findPath:buildInitialPath:end");
+    performance.mark("hpa:findPath:buildInitialPath:end");
     const buildInitialPathMeasure = performance.measure(
-      "navsat:findPath:buildInitialPath",
-      "navsat:findPath:buildInitialPath:start",
-      "navsat:findPath:buildInitialPath:end",
+      "hpa:findPath:buildInitialPath",
+      "hpa:findPath:buildInitialPath:start",
+      "hpa:findPath:buildInitialPath:end",
     );
 
     if (debug) {
-      this.debugInfo!.timings.buildInitialPath =
-        buildInitialPathMeasure.duration;
+      this.debugInfo!.timings.buildInitialPath = buildInitialPathMeasure.duration;
       this.debugInfo!.timings.total += buildInitialPathMeasure.duration;
       this.debugInfo!.initialPath = initialPath;
       console.log(`[DEBUG] Initial path: ${initialPath.length} tiles`);
     }
 
-    performance.mark("navsat:findPath:smoothPath:start");
+    performance.mark("hpa:findPath:smoothPath:start");
     const smoothedPath = this.smoothPath(initialPath);
-    performance.mark("navsat:findPath:smoothPath:end");
+    performance.mark("hpa:findPath:smoothPath:end");
     const smoothPathMeasure = performance.measure(
-      "navsat:findPath:smoothPath",
-      "navsat:findPath:smoothPath:start",
-      "navsat:findPath:smoothPath:end",
+      "hpa:findPath:smoothPath",
+      "hpa:findPath:smoothPath:start",
+      "hpa:findPath:smoothPath:end",
     );
 
     if (debug) {
@@ -431,7 +411,7 @@ export class NavMeshOptimized {
     return smoothedPath;
   }
 
-  private findNearestGateway(tile: TileRef): Gateway | null {
+  private findNearestNode(tile: TileRef): AbstractNode | null {
     const map = this.game.map();
     const x = map.x(tile);
     const y = map.y(tile);
@@ -441,41 +421,36 @@ export class NavMeshOptimized {
     const miniY = Math.floor(y / 2);
     const miniFrom = miniMap.ref(miniX, miniY);
 
-    const sectorX = Math.floor(miniX / this.graph.sectorSize);
-    const sectorY = Math.floor(miniY / this.graph.sectorSize);
+    const clusterX = Math.floor(miniX / this.graph.clusterSize);
+    const clusterY = Math.floor(miniY / this.graph.clusterSize);
 
-    const sectorSize = this.graph.sectorSize;
-    const minX = sectorX * sectorSize;
-    const minY = sectorY * sectorSize;
-    const maxX = Math.min(miniMap.width() - 1, minX + sectorSize - 1);
-    const maxY = Math.min(miniMap.height() - 1, minY + sectorSize - 1);
+    const clusterSize = this.graph.clusterSize;
+    const minX = clusterX * clusterSize;
+    const minY = clusterY * clusterSize;
+    const maxX = Math.min(miniMap.width() - 1, minX + clusterSize - 1);
+    const maxY = Math.min(miniMap.height() - 1, minY + clusterSize - 1);
 
-    const sector = this.graph.getSector(sectorX, sectorY);
-
-    if (!sector) {
+    const cluster = this.graph.getCluster(clusterX, clusterY);
+    if (!cluster || cluster.nodeIds.length === 0) {
       return null;
     }
 
-    const candidateGateways = sector.gateways;
-    if (candidateGateways.length === 0) {
-      return null;
-    }
-
-    const maxDistance = sectorSize * sectorSize;
+    const candidateNodes = cluster.nodeIds.map((id) => this.graph.getNode(id)!);
+    const maxDistance = clusterSize * clusterSize;
 
     return this.fastBFS.search(
       miniMap.width(),
       miniMap.height(),
       miniFrom,
       maxDistance,
-      (tile: TileRef) => miniMap.isWater(tile),
-      (tile: TileRef, _dist: number) => {
-        const tileX = miniMap.x(tile);
-        const tileY = miniMap.y(tile);
+      (t: TileRef) => miniMap.isWater(t),
+      (t: TileRef, _dist: number) => {
+        const tileX = miniMap.x(t);
+        const tileY = miniMap.y(t);
 
-        for (const gateway of candidateGateways) {
-          if (gateway.x === tileX && gateway.y === tileY) {
-            return gateway;
+        for (const node of candidateNodes) {
+          if (node.x === tileX && node.y === tileY) {
+            return node;
           }
         }
 
@@ -486,19 +461,19 @@ export class NavMeshOptimized {
     );
   }
 
-  private findGatewayPath(
-    fromGatewayId: number,
-    toGatewayId: number,
+  private findAbstractPath(
+    fromNodeId: number,
+    toNodeId: number,
   ): number[] | null {
-    return this.gatewayAStar.search(fromGatewayId, toGatewayId);
+    return this.abstractAStar.search(fromNodeId, toNodeId);
   }
 
   private findLocalPath(
     from: TileRef,
     to: TileRef,
-    sectorX: number,
-    sectorY: number,
-    multiSector: boolean = false,
+    clusterX: number,
+    clusterY: number,
+    multiCluster: boolean = false,
   ): TileRef[] | null {
     const map = this.game.map();
     const miniMap = this.game.miniMap();
@@ -514,31 +489,31 @@ export class NavMeshOptimized {
       Math.floor(map.y(to) / 2),
     );
 
-    // Calculate sector bounds
-    const sectorSize = this.graph.sectorSize;
+    // Calculate cluster bounds
+    const clusterSize = this.graph.clusterSize;
 
     let minX: number;
     let minY: number;
     let maxX: number;
     let maxY: number;
 
-    if (multiSector) {
-      // 3×3 sectors centered on the starting sector
-      minX = Math.max(0, (sectorX - 1) * sectorSize);
-      minY = Math.max(0, (sectorY - 1) * sectorSize);
-      maxX = Math.min(miniMap.width() - 1, (sectorX + 2) * sectorSize - 1);
-      maxY = Math.min(miniMap.height() - 1, (sectorY + 2) * sectorSize - 1);
+    if (multiCluster) {
+      // 3×3 clusters centered on the starting cluster
+      minX = Math.max(0, (clusterX - 1) * clusterSize);
+      minY = Math.max(0, (clusterY - 1) * clusterSize);
+      maxX = Math.min(miniMap.width() - 1, (clusterX + 2) * clusterSize - 1);
+      maxY = Math.min(miniMap.height() - 1, (clusterY + 2) * clusterSize - 1);
     } else {
-      // Single sector
-      minX = sectorX * sectorSize;
-      minY = sectorY * sectorSize;
-      maxX = Math.min(miniMap.width() - 1, minX + sectorSize - 1);
-      maxY = Math.min(miniMap.height() - 1, minY + sectorSize - 1);
+      // Single cluster
+      minX = clusterX * clusterSize;
+      minY = clusterY * clusterSize;
+      maxX = Math.min(miniMap.width() - 1, minX + clusterSize - 1);
+      maxY = Math.min(miniMap.height() - 1, minY + clusterSize - 1);
     }
 
     // Choose the appropriate BoundedAStar based on search area
-    const selectedAStar = multiSector
-      ? this.localAStarMultiSector
+    const selectedAStar = multiCluster
+      ? this.localAStarMultiCluster
       : this.localAStar;
 
     // Run BoundedAStar on bounded region

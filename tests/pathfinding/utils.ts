@@ -24,7 +24,7 @@ import {
 import { AStarPathFinder } from "../../src/core/pathfinding/experimental/AStarPathFinder";
 import { GameMapAStar } from "../../src/core/pathfinding/experimental/GameMapAStar";
 import { MiniAStar } from "../../src/core/pathfinding/experimental/MiniAStar";
-import { NavMeshOptimizedAdapter } from "../../src/core/pathfinding/experimental/NavMeshOptimizedAdapter";
+import { GameMapHPAStar } from "../../src/core/pathfinding/experimental/GameMapHPAStar";
 import { NavMesh } from "../../src/core/pathfinding/navmesh/NavMesh";
 import { PathFinder, PathFinders } from "../../src/core/pathfinding/PathFinder";
 import { GameConfig } from "../../src/core/Schemas";
@@ -92,10 +92,16 @@ export function getAdapter(game: Game, name: string): PathFinder {
     }
     case "hpa.cached":
       return PathFinders.Water(game);
-    case "hpa.optimized":
-      return new NavMeshOptimizedAdapter(game, { cachePaths: false });
-    case "hpa.optimized.cached":
-      return new NavMeshOptimizedAdapter(game, { cachePaths: true });
+    case "hpa.optimized": {
+      const hpa = new GameMapHPAStar(game, { cachePaths: false });
+      hpa.initialize();
+      return new AStarPathFinder(game, hpa);
+    }
+    case "hpa.optimized.cached": {
+      const hpa = new GameMapHPAStar(game, { cachePaths: true });
+      hpa.initialize();
+      return new AStarPathFinder(game, hpa);
+    }
     default:
       throw new Error(`Unknown pathfinding adapter: ${name}`);
   }
