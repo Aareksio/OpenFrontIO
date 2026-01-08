@@ -1,41 +1,34 @@
-// Adapter for UniformCostAStar with direct terrain access
+// PathFinder adapter for GridAStar with direct terrain access
 
 import { Cell, Game } from "../../game/Game";
 import { TileRef } from "../../game/GameMap";
-import { PathFindResultType } from "../AStar";
 import { PathFinder, PathResult, PathStatus } from "../PathFinder";
+import { GridAStar } from "./GridAStar";
 import { fixExtremes, upscalePath } from "./PathUpscaler";
-import { UniformCostAStar } from "./UniformCostAStar";
 
-export interface UniformCostAStarOptions {
-  iterations?: number;
-  maxTries?: number;
+export interface GridAStarOptions {
+  maxIterations?: number;
 }
 
-const DEFAULT_ITERATIONS = 500_000;
-const DEFAULT_MAX_TRIES = 50;
-
-export class UniformCostAStarAdapter implements PathFinder {
+export class GridAStarAdapter implements PathFinder {
   private game: Game;
-  private aStar: UniformCostAStar;
+  private aStar: GridAStar;
   private miniMapWidth: number;
 
-  constructor(game: Game, options?: UniformCostAStarOptions) {
+  constructor(game: Game, options?: GridAStarOptions) {
     this.game = game;
     const miniMap = game.miniMap();
     this.miniMapWidth = miniMap.width();
-    const numNodes = this.miniMapWidth * miniMap.height();
 
     // Direct access to terrain array
     const terrain = (miniMap as any).terrain as Uint8Array;
 
-    this.aStar = new UniformCostAStar(
+    this.aStar = new GridAStar({
       terrain,
-      numNodes,
-      this.miniMapWidth,
-      options?.iterations ?? DEFAULT_ITERATIONS,
-      options?.maxTries ?? DEFAULT_MAX_TRIES,
-    );
+      width: this.miniMapWidth,
+      height: miniMap.height(),
+      maxIterations: options?.maxIterations,
+    });
   }
 
   next(from: TileRef, to: TileRef, dist?: number): PathResult {
@@ -69,23 +62,12 @@ export class UniformCostAStarAdapter implements PathFinder {
       Math.floor(gameMap.y(to) / 2),
     );
 
-    this.aStar.reset(miniFrom as number, miniTo as number);
-
-    let result: PathFindResultType;
-    do {
-      result = this.aStar.compute();
-    } while (result === PathFindResultType.Pending);
-
-    if (result === PathFindResultType.PathNotFound) {
+    const path = this.aStar.search(miniFrom as number, miniTo as number);
+    if (!path || path.length === 0) {
       return null;
     }
 
-    const miniPath = this.aStar.reconstructPath();
-    if (miniPath.length === 0) {
-      return null;
-    }
-
-    const cellPath = miniPath.map(
+    const cellPath = path.map(
       (ref) => new Cell(miniMap.x(ref as TileRef), miniMap.y(ref as TileRef)),
     );
 

@@ -1,0 +1,192 @@
+// Grid A* with bucket queue, uniform cost, and direct terrain access
+// Optimized for naval pathfinding where all water tiles have cost = 1
+
+import { BucketQueue, PriorityQueue } from "./PriorityQueue";
+
+const LAND_BIT = 7; // Bit 7 in terrain indicates land
+
+export interface GridAStarConfig {
+  terrain: Uint8Array;
+  width: number;
+  height: number;
+  heuristicWeight?: number; // Default: 15
+  maxIterations?: number; // Default: 500_000
+}
+
+export class GridAStar {
+  private stamp = 1;
+  private readonly closedStamp: Uint32Array;
+  private readonly gScoreStamp: Uint32Array;
+  private readonly gScore: Uint32Array;
+  private readonly cameFrom: Int32Array;
+  private readonly queue: PriorityQueue;
+  private readonly terrain: Uint8Array;
+  private readonly width: number;
+  private readonly numNodes: number;
+  private readonly heuristicWeight: number;
+  private readonly maxIterations: number;
+
+  constructor(config: GridAStarConfig) {
+    this.terrain = config.terrain;
+    this.width = config.width;
+    this.numNodes = config.width * config.height;
+    this.heuristicWeight = config.heuristicWeight ?? 15;
+    this.maxIterations = config.maxIterations ?? 500_000;
+
+    this.closedStamp = new Uint32Array(this.numNodes);
+    this.gScoreStamp = new Uint32Array(this.numNodes);
+    this.gScore = new Uint32Array(this.numNodes);
+    this.cameFrom = new Int32Array(this.numNodes);
+
+    // BucketQueue with max f = weight * (width + height)
+    const maxF = this.heuristicWeight * (config.width + config.height);
+    this.queue = new BucketQueue(maxF);
+  }
+
+  search(start: number, goal: number): number[] | null {
+    // Advance stamp (handles overflow)
+    this.stamp++;
+    if (this.stamp === 0) {
+      this.closedStamp.fill(0);
+      this.gScoreStamp.fill(0);
+      this.stamp = 1;
+    }
+
+    const stamp = this.stamp;
+    const width = this.width;
+    const numNodes = this.numNodes;
+    const terrain = this.terrain;
+    const closedStamp = this.closedStamp;
+    const gScoreStamp = this.gScoreStamp;
+    const gScore = this.gScore;
+    const cameFrom = this.cameFrom;
+    const queue = this.queue;
+    const weight = this.heuristicWeight;
+    const landMask = 1 << LAND_BIT;
+
+    // Goal coordinates for heuristic
+    const goalX = goal % width;
+    const goalY = (goal / width) | 0;
+
+    // Initialize
+    queue.clear();
+    gScore[start] = 0;
+    gScoreStamp[start] = stamp;
+    cameFrom[start] = -1;
+
+    const startX = start % width;
+    const startY = (start / width) | 0;
+    const startH = weight * (Math.abs(startX - goalX) + Math.abs(startY - goalY));
+    queue.push(start, startH);
+
+    let iterations = this.maxIterations;
+
+    while (!queue.isEmpty()) {
+      if (--iterations <= 0) {
+        return null; // Iteration limit reached
+      }
+
+      const current = queue.pop();
+
+      if (closedStamp[current] === stamp) continue;
+      closedStamp[current] = stamp;
+
+      if (current === goal) {
+        return this.buildPath(start, goal);
+      }
+
+      const currentG = gScore[current];
+      const tentativeG = currentG + 1; // Uniform cost = 1
+      const currentX = current % width;
+
+      // Up
+      if (current >= width) {
+        const neighbor = current - width;
+        if (
+          closedStamp[neighbor] !== stamp &&
+          (neighbor === goal || (terrain[neighbor] & landMask) === 0)
+        ) {
+          if (gScoreStamp[neighbor] !== stamp || tentativeG < gScore[neighbor]) {
+            cameFrom[neighbor] = current;
+            gScore[neighbor] = tentativeG;
+            gScoreStamp[neighbor] = stamp;
+            const nx = neighbor % width;
+            const ny = (neighbor / width) | 0;
+            const f = tentativeG + weight * (Math.abs(nx - goalX) + Math.abs(ny - goalY));
+            queue.push(neighbor, f);
+          }
+        }
+      }
+
+      // Down
+      if (current < numNodes - width) {
+        const neighbor = current + width;
+        if (
+          closedStamp[neighbor] !== stamp &&
+          (neighbor === goal || (terrain[neighbor] & landMask) === 0)
+        ) {
+          if (gScoreStamp[neighbor] !== stamp || tentativeG < gScore[neighbor]) {
+            cameFrom[neighbor] = current;
+            gScore[neighbor] = tentativeG;
+            gScoreStamp[neighbor] = stamp;
+            const nx = neighbor % width;
+            const ny = (neighbor / width) | 0;
+            const f = tentativeG + weight * (Math.abs(nx - goalX) + Math.abs(ny - goalY));
+            queue.push(neighbor, f);
+          }
+        }
+      }
+
+      // Left
+      if (currentX !== 0) {
+        const neighbor = current - 1;
+        if (
+          closedStamp[neighbor] !== stamp &&
+          (neighbor === goal || (terrain[neighbor] & landMask) === 0)
+        ) {
+          if (gScoreStamp[neighbor] !== stamp || tentativeG < gScore[neighbor]) {
+            cameFrom[neighbor] = current;
+            gScore[neighbor] = tentativeG;
+            gScoreStamp[neighbor] = stamp;
+            const ny = (neighbor / width) | 0;
+            const f = tentativeG + weight * (Math.abs(currentX - 1 - goalX) + Math.abs(ny - goalY));
+            queue.push(neighbor, f);
+          }
+        }
+      }
+
+      // Right
+      if (currentX !== width - 1) {
+        const neighbor = current + 1;
+        if (
+          closedStamp[neighbor] !== stamp &&
+          (neighbor === goal || (terrain[neighbor] & landMask) === 0)
+        ) {
+          if (gScoreStamp[neighbor] !== stamp || tentativeG < gScore[neighbor]) {
+            cameFrom[neighbor] = current;
+            gScore[neighbor] = tentativeG;
+            gScoreStamp[neighbor] = stamp;
+            const ny = (neighbor / width) | 0;
+            const f = tentativeG + weight * (Math.abs(currentX + 1 - goalX) + Math.abs(ny - goalY));
+            queue.push(neighbor, f);
+          }
+        }
+      }
+    }
+
+    return null; // No path found
+  }
+
+  private buildPath(start: number, goal: number): number[] {
+    const path: number[] = [];
+    let current = goal;
+
+    while (current !== -1) {
+      path.push(current);
+      current = this.cameFrom[current];
+    }
+
+    path.reverse();
+    return path;
+  }
+}
