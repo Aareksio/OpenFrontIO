@@ -46,6 +46,7 @@ export type BenchmarkSummary = {
 export function getAdapter(game: Game, name: string): PathFinder {
   switch (name) {
     case "legacy":
+    case "a.legacy":
       return PathFinders.WaterLegacy(game, {
         iterations: 500_000,
         maxTries: 50,
