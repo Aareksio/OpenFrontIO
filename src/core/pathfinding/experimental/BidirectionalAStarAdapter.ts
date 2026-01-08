@@ -1,14 +1,14 @@
-// Adapter for OptimizedAStar variants implementing PathFinder interface
+// Adapter for BidirectionalAStar implementing PathFinder interface
 
 import { Cell, Game } from "../../game/Game";
 import { GameMap, TileRef } from "../../game/GameMap";
 import { PathFindResultType } from "../AStar";
 import { PathFinder, PathResult, PathStatus } from "../PathFinder";
 import { GraphAdapter } from "../SerialAStar";
-import { OptimizedAStar } from "./OptimizedAStar";
+import { BidirectionalAStar } from "./BidirectionalAStar";
 import { fixExtremes, upscalePath } from "./PathUpscaler";
 
-export interface OptimizedAStarOptions {
+export interface BidirectionalAStarOptions {
   iterations?: number;
   maxTries?: number;
 }
@@ -16,7 +16,7 @@ export interface OptimizedAStarOptions {
 const DEFAULT_ITERATIONS = 500_000;
 const DEFAULT_MAX_TRIES = 50;
 
-// Adapter for GameMap to work with OptimizedAStar
+// Adapter for GameMap to work with BidirectionalAStar
 class GameMapGraphAdapter implements GraphAdapter<number> {
   constructor(
     private gameMap: GameMap,
@@ -43,20 +43,19 @@ class GameMapGraphAdapter implements GraphAdapter<number> {
   }
 }
 
-export class OptimizedAStarAdapter implements PathFinder {
+export class BidirectionalAStarAdapter implements PathFinder {
   private game: Game;
   private graphAdapter: GameMapGraphAdapter;
-  private aStar: OptimizedAStar;
+  private aStar: BidirectionalAStar;
 
-  constructor(game: Game, options?: OptimizedAStarOptions) {
+  constructor(game: Game, options?: BidirectionalAStarOptions) {
     this.game = game;
     const miniMap = game.miniMap();
     const width = miniMap.width();
     this.graphAdapter = new GameMapGraphAdapter(miniMap, width);
     const numNodes = width * miniMap.height();
 
-    // Create pooled A* instance
-    this.aStar = new OptimizedAStar(
+    this.aStar = new BidirectionalAStar(
       this.graphAdapter,
       numNodes,
       width,
@@ -66,7 +65,6 @@ export class OptimizedAStarAdapter implements PathFinder {
   }
 
   next(from: TileRef, to: TileRef, dist?: number): PathResult {
-    // Simple implementation - compute full path and return first step
     const path = this.findPath(from, to);
     if (!path || path.length === 0) {
       return { status: PathStatus.NOT_FOUND };

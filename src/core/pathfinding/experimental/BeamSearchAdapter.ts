@@ -1,22 +1,23 @@
-// Adapter for OptimizedAStar variants implementing PathFinder interface
+// Adapter for BeamSearch implementing PathFinder interface
 
 import { Cell, Game } from "../../game/Game";
 import { GameMap, TileRef } from "../../game/GameMap";
 import { PathFindResultType } from "../AStar";
 import { PathFinder, PathResult, PathStatus } from "../PathFinder";
 import { GraphAdapter } from "../SerialAStar";
-import { OptimizedAStar } from "./OptimizedAStar";
+import { BeamSearch } from "./BeamSearch";
 import { fixExtremes, upscalePath } from "./PathUpscaler";
 
-export interface OptimizedAStarOptions {
+export interface BeamSearchOptions {
+  beamWidth?: number;
   iterations?: number;
   maxTries?: number;
 }
 
+const DEFAULT_BEAM_WIDTH = 2000;
 const DEFAULT_ITERATIONS = 500_000;
 const DEFAULT_MAX_TRIES = 50;
 
-// Adapter for GameMap to work with OptimizedAStar
 class GameMapGraphAdapter implements GraphAdapter<number> {
   constructor(
     private gameMap: GameMap,
@@ -43,30 +44,29 @@ class GameMapGraphAdapter implements GraphAdapter<number> {
   }
 }
 
-export class OptimizedAStarAdapter implements PathFinder {
+export class BeamSearchAdapter implements PathFinder {
   private game: Game;
   private graphAdapter: GameMapGraphAdapter;
-  private aStar: OptimizedAStar;
+  private beamSearch: BeamSearch;
 
-  constructor(game: Game, options?: OptimizedAStarOptions) {
+  constructor(game: Game, options?: BeamSearchOptions) {
     this.game = game;
     const miniMap = game.miniMap();
     const width = miniMap.width();
     this.graphAdapter = new GameMapGraphAdapter(miniMap, width);
     const numNodes = width * miniMap.height();
 
-    // Create pooled A* instance
-    this.aStar = new OptimizedAStar(
+    this.beamSearch = new BeamSearch(
       this.graphAdapter,
       numNodes,
       width,
+      options?.beamWidth ?? DEFAULT_BEAM_WIDTH,
       options?.iterations ?? DEFAULT_ITERATIONS,
       options?.maxTries ?? DEFAULT_MAX_TRIES,
     );
   }
 
   next(from: TileRef, to: TileRef, dist?: number): PathResult {
-    // Simple implementation - compute full path and return first step
     const path = this.findPath(from, to);
     if (!path || path.length === 0) {
       return { status: PathStatus.NOT_FOUND };
@@ -88,7 +88,6 @@ export class OptimizedAStarAdapter implements PathFinder {
     const gameMap = this.game.map();
     const miniMap = this.game.miniMap();
 
-    // Downscale to minimap coordinates
     const miniFrom = miniMap.ref(
       Math.floor(gameMap.x(from) / 2),
       Math.floor(gameMap.y(from) / 2),
@@ -98,36 +97,30 @@ export class OptimizedAStarAdapter implements PathFinder {
       Math.floor(gameMap.y(to) / 2),
     );
 
-    // Reset pooled instance for new search
-    this.aStar.reset(miniFrom as number, miniTo as number);
+    this.beamSearch.reset(miniFrom as number, miniTo as number);
 
-    // Run to completion
     let result: PathFindResultType;
     do {
-      result = this.aStar.compute();
+      result = this.beamSearch.compute();
     } while (result === PathFindResultType.Pending);
 
     if (result === PathFindResultType.PathNotFound) {
       return null;
     }
 
-    // Get minimap path and upscale
-    const miniPath = this.aStar.reconstructPath();
+    const miniPath = this.beamSearch.reconstructPath();
     if (miniPath.length === 0) {
       return null;
     }
 
-    // Convert to cells for upscaling
     const cellPath = miniPath.map(
       (ref) => new Cell(miniMap.x(ref as TileRef), miniMap.y(ref as TileRef)),
     );
 
-    // Upscale and fix extremes
     const cellFrom = new Cell(gameMap.x(from), gameMap.y(from));
     const cellTo = new Cell(gameMap.x(to), gameMap.y(to));
     const upscaled = fixExtremes(upscalePath(cellPath), cellTo, cellFrom);
 
-    // Convert back to TileRefs
     return upscaled.map((c) => gameMap.ref(c.x, c.y));
   }
 }

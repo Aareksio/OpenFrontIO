@@ -17,7 +17,15 @@ import {
   MapManifest,
 } from "../../src/core/game/TerrainMapLoader";
 import { UserSettings } from "../../src/core/game/UserSettings";
+import { BeamSearchAdapter } from "../../src/core/pathfinding/experimental/BeamSearchAdapter";
+import { BidirectionalAStarAdapter } from "../../src/core/pathfinding/experimental/BidirectionalAStarAdapter";
+import { LOSShortcutAdapter } from "../../src/core/pathfinding/experimental/LOSShortcutAdapter";
 import { OptimizedAStarAdapter } from "../../src/core/pathfinding/experimental/OptimizedAStarAdapter";
+import { TieBreakingAStarAdapter } from "../../src/core/pathfinding/experimental/TieBreakingAStarAdapter";
+import { BucketQueueAStarAdapter } from "../../src/core/pathfinding/experimental/BucketQueueAStarAdapter";
+import { UniformCostAStarAdapter } from "../../src/core/pathfinding/experimental/UniformCostAStarAdapter";
+import { DirectAccessAStarAdapter } from "../../src/core/pathfinding/experimental/DirectAccessAStarAdapter";
+import { BucketUniformAStarAdapter } from "../../src/core/pathfinding/experimental/BucketUniformAStarAdapter";
 import { NavMesh } from "../../src/core/pathfinding/navmesh/NavMesh";
 import { PathFinder, PathFinders } from "../../src/core/pathfinding/PathFinder";
 import { GameConfig } from "../../src/core/Schemas";
@@ -53,6 +61,47 @@ export function getAdapter(game: Game, name: string): PathFinder {
       });
     case "a.optimized":
       return new OptimizedAStarAdapter(game, {
+        iterations: 500_000,
+        maxTries: 50,
+      });
+    case "a.bidirectional":
+      return new BidirectionalAStarAdapter(game, {
+        iterations: 500_000,
+        maxTries: 50,
+      });
+    case "a.beam":
+      return new BeamSearchAdapter(game, {
+        beamWidth: 2000,
+        iterations: 500_000,
+        maxTries: 50,
+      });
+    case "a.los":
+      return new LOSShortcutAdapter(game, {
+        iterations: 500_000,
+        maxTries: 50,
+      });
+    case "a.tiebreak":
+      return new TieBreakingAStarAdapter(game, {
+        iterations: 500_000,
+        maxTries: 50,
+      });
+    case "a.bucket":
+      return new BucketQueueAStarAdapter(game, {
+        iterations: 500_000,
+        maxTries: 50,
+      });
+    case "a.uniform":
+      return new UniformCostAStarAdapter(game, {
+        iterations: 500_000,
+        maxTries: 50,
+      });
+    case "a.direct":
+      return new DirectAccessAStarAdapter(game, {
+        iterations: 500_000,
+        maxTries: 50,
+      });
+    case "a.bucket.uniform":
+      return new BucketUniformAStarAdapter(game, {
         iterations: 500_000,
         maxTries: 50,
       });

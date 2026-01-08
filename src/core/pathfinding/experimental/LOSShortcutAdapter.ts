@@ -1,14 +1,14 @@
-// Adapter for OptimizedAStar variants implementing PathFinder interface
+// Adapter for LOSShortcut implementing PathFinder interface
 
 import { Cell, Game } from "../../game/Game";
 import { GameMap, TileRef } from "../../game/GameMap";
 import { PathFindResultType } from "../AStar";
 import { PathFinder, PathResult, PathStatus } from "../PathFinder";
 import { GraphAdapter } from "../SerialAStar";
-import { OptimizedAStar } from "./OptimizedAStar";
+import { LOSShortcut } from "./LOSShortcut";
 import { fixExtremes, upscalePath } from "./PathUpscaler";
 
-export interface OptimizedAStarOptions {
+export interface LOSShortcutOptions {
   iterations?: number;
   maxTries?: number;
 }
@@ -16,7 +16,7 @@ export interface OptimizedAStarOptions {
 const DEFAULT_ITERATIONS = 500_000;
 const DEFAULT_MAX_TRIES = 50;
 
-// Adapter for GameMap to work with OptimizedAStar
+// Adapter for GameMap to work with LOSShortcut
 class GameMapGraphAdapter implements GraphAdapter<number> {
   constructor(
     private gameMap: GameMap,
@@ -43,20 +43,19 @@ class GameMapGraphAdapter implements GraphAdapter<number> {
   }
 }
 
-export class OptimizedAStarAdapter implements PathFinder {
+export class LOSShortcutAdapter implements PathFinder {
   private game: Game;
   private graphAdapter: GameMapGraphAdapter;
-  private aStar: OptimizedAStar;
+  private losShortcut: LOSShortcut;
 
-  constructor(game: Game, options?: OptimizedAStarOptions) {
+  constructor(game: Game, options?: LOSShortcutOptions) {
     this.game = game;
     const miniMap = game.miniMap();
     const width = miniMap.width();
     this.graphAdapter = new GameMapGraphAdapter(miniMap, width);
     const numNodes = width * miniMap.height();
 
-    // Create pooled A* instance
-    this.aStar = new OptimizedAStar(
+    this.losShortcut = new LOSShortcut(
       this.graphAdapter,
       numNodes,
       width,
@@ -66,7 +65,6 @@ export class OptimizedAStarAdapter implements PathFinder {
   }
 
   next(from: TileRef, to: TileRef, dist?: number): PathResult {
-    // Simple implementation - compute full path and return first step
     const path = this.findPath(from, to);
     if (!path || path.length === 0) {
       return { status: PathStatus.NOT_FOUND };
@@ -98,13 +96,13 @@ export class OptimizedAStarAdapter implements PathFinder {
       Math.floor(gameMap.y(to) / 2),
     );
 
-    // Reset pooled instance for new search
-    this.aStar.reset(miniFrom as number, miniTo as number);
+    // Reset for new search (LOS check happens here)
+    this.losShortcut.reset(miniFrom as number, miniTo as number);
 
     // Run to completion
     let result: PathFindResultType;
     do {
-      result = this.aStar.compute();
+      result = this.losShortcut.compute();
     } while (result === PathFindResultType.Pending);
 
     if (result === PathFindResultType.PathNotFound) {
@@ -112,7 +110,7 @@ export class OptimizedAStarAdapter implements PathFinder {
     }
 
     // Get minimap path and upscale
-    const miniPath = this.aStar.reconstructPath();
+    const miniPath = this.losShortcut.reconstructPath();
     if (miniPath.length === 0) {
       return null;
     }
