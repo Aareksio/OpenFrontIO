@@ -76,7 +76,7 @@ export function getAdapter(game: Game, name: string): PathFinder {
       // to avoid adding side effect from benchmark to the game
       const hpa = new GameMapHPAStar(game, { cachePaths: false });
       hpa.initialize();
-      (game as any)._gameMapHPAStar = hpa;
+      (game as any)._waterPathfinder = hpa;
 
       return PathFinders.Water(game);
     }

@@ -24,16 +24,17 @@ export interface PathFinder {
 
 export class PathFinders {
   static Water(game: Game): PathFinder {
-    const hpa = game.gameMapHPAStar();
+    const hpa = game.waterPathfinder();
+
     if (!hpa) {
       // Fall back to baseline A* if HPA* is not available
-      return PathFinders.WaterBaseline(game);
+      return PathFinders.WaterDirect(game);
     }
 
     return new AStarPathFinder(game, hpa);
   }
 
-  static WaterBaseline(game: Game): PathFinder {
+  static WaterDirect(game: Game): PathFinder {
     return new AStarPathFinder(
       game,
       new MiniAStar(game, (map) => new GameMapAStar(map)),

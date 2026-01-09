@@ -29,7 +29,7 @@ const adapters: AdapterFactory[] = [
   {
     name: "AStarPathFinder (HPA*)",
     create: (game) => {
-      const hpa = game.gameMapHPAStar();
+      const hpa = game.waterPathfinder();
       if (!hpa) {
         // Create HPA* if not initialized (for small test maps)
         const newHpa = new GameMapHPAStar(game, { cachePaths: false });

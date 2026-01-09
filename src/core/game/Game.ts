@@ -782,7 +782,7 @@ export interface Game extends GameMap {
   addUpdate(update: GameUpdate): void;
   railNetwork(): RailNetwork;
   conquerPlayer(conqueror: Player, conquered: Player): void;
-  gameMapHPAStar(): AStar | null;
+  waterPathfinder(): AStar | null;
 }
 
 export interface PlayerActions {

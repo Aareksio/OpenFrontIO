@@ -88,7 +88,7 @@ export class GameImpl implements Game {
   private nextAllianceID: number = 0;
 
   private _isPaused: boolean = false;
-  private _gameMapHPAStar: GameMapHPAStar | null = null;
+  private _waterPathfinder: GameMapHPAStar | null = null;
 
   constructor(
     private _humans: PlayerInfo[],
@@ -109,8 +109,8 @@ export class GameImpl implements Game {
     this.addPlayers();
 
     if (!_config.disableNavMesh()) {
-      this._gameMapHPAStar = new GameMapHPAStar(this, { cachePaths: true });
-      this._gameMapHPAStar.initialize();
+      this._waterPathfinder = new GameMapHPAStar(this, { cachePaths: true });
+      this._waterPathfinder.initialize();
     }
   }
 
@@ -965,8 +965,8 @@ export class GameImpl implements Game {
   railNetwork(): RailNetwork {
     return this._railNetwork;
   }
-  gameMapHPAStar(): AStar | null {
-    return this._gameMapHPAStar;
+  waterPathfinder(): AStar | null {
+    return this._waterPathfinder;
   }
   conquerPlayer(conqueror: Player, conquered: Player) {
     if (conquered.isDisconnected() && conqueror.isOnSameTeam(conquered)) {
