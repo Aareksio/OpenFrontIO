@@ -500,6 +500,48 @@ canvas {
   font-size: 20px;
 }
 
+/* Comparison rows */
+.comparison-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 14px;
+  border-bottom: 1px solid #333;
+}
+
+.comparison-row:last-child {
+  border-bottom: none;
+}
+
+.comp-name {
+  color: #aaa;
+  flex: 1;
+  font-family: monospace;
+}
+
+.comp-tiles {
+  color: #888;
+  width: 50px;
+  text-align: right;
+  margin-right: 10px;
+}
+
+.comp-time {
+  font-family: monospace;
+  color: #f5f5f5;
+  width: 70px;
+  text-align: right;
+  margin-right: 10px;
+}
+
+.comp-speedup {
+  font-family: monospace;
+  font-weight: bold;
+  width: 50px;
+  text-align: right;
+}
+
 /* Legend panel (right side) */
 .legend-panel {
   position: fixed;

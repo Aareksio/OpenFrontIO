@@ -1,39 +1,58 @@
 import { TileRef } from "../../../../src/core/game/GameMap.js";
-import { MiniAStarAdapter } from "../../../../src/core/pathfinding/adapters/MiniAStarAdapter.js";
+import { GameMapHPAStar } from "../../../../src/core/pathfinding/experimental/GameMapHPAStar.js";
+import { PathFinder } from "../../../../src/core/pathfinding/PathFinder.js";
+import { getAdapter } from "../../utils.js";
 import { loadMap } from "./maps.js";
 
-interface PathfindingOptions {
-  includePfMini?: boolean;
-  includeNavMesh?: boolean;
+// Available comparison adapters
+// Note: "hpa" runs same algorithm without debug overhead for fair timing comparison
+const COMPARISON_ADAPTERS = ["hpa", "a.baseline", "a.generic", "a.full"];
+
+// Primary result with debug info
+interface PrimaryResult {
+  path: Array<[number, number]> | null;
+  length: number;
+  time: number;
+  debug: {
+    nodePath: Array<[number, number]> | null;
+    initialPath: Array<[number, number]> | null;
+    timings: Record<string, number>;
+  };
 }
 
-interface NavMeshResult {
+// Comparison result (path + timing only)
+interface ComparisonResult {
+  adapter: string;
   path: Array<[number, number]> | null;
-  initialPath: Array<[number, number]> | null;
-  gateways: Array<[number, number]> | null;
-  timings: any;
   length: number;
   time: number;
 }
 
-interface PfMiniResult {
-  path: Array<[number, number]> | null;
-  length: number;
-  time: number;
+export interface PathfindResult {
+  primary: PrimaryResult;
+  comparisons: ComparisonResult[];
 }
 
-// Cache pathfinding adapters per map
-const pfMiniCache = new Map<string, MiniAStarAdapter>();
+// Cache adapters per map
+const adapterCache = new Map<string, Map<string, PathFinder>>();
 
 /**
- * Get or create MiniAStar adapter for a map
+ * Get or create an adapter for a map
  */
-function getPfMiniAdapter(mapName: string, game: any): MiniAStarAdapter {
-  if (!pfMiniCache.has(mapName)) {
-    const adapter = new MiniAStarAdapter(game, { waterPath: true });
-    pfMiniCache.set(mapName, adapter);
+function getOrCreateAdapter(
+  mapName: string,
+  adapterName: string,
+  game: any,
+): PathFinder {
+  if (!adapterCache.has(mapName)) {
+    adapterCache.set(mapName, new Map());
   }
-  return pfMiniCache.get(mapName)!;
+  const mapAdapters = adapterCache.get(mapName)!;
+
+  if (!mapAdapters.has(adapterName)) {
+    mapAdapters.set(adapterName, getAdapter(game, adapterName));
+  }
+  return mapAdapters.get(adapterName)!;
 }
 
 /**
@@ -48,110 +67,130 @@ function pathToCoords(
 }
 
 /**
- * Compute pathfinding between two points
+ * Compute primary path using GameMapHPAStar with debug info
  */
-export async function computePath(
-  mapName: string,
-  from: [number, number],
-  to: [number, number],
-  options: PathfindingOptions = {},
-): Promise<NavMeshResult> {
-  const { game, navMesh: navMeshAdapter } = await loadMap(mapName);
+function computePrimaryPath(
+  hpaStar: GameMapHPAStar,
+  game: any,
+  fromRef: TileRef,
+  toRef: TileRef,
+): PrimaryResult {
+  const start = performance.now();
+  const path = hpaStar.findPath(fromRef, toRef, true); // debug=true
+  const time = performance.now() - start;
 
-  // Convert coordinates to TileRefs
-  const fromRef = game.ref(from[0], from[1]);
-  const toRef = game.ref(to[0], to[1]);
-
-  // Validate that both points are water tiles
-  if (!game.isWater(fromRef)) {
-    throw new Error(`Start point (${from[0]}, ${from[1]}) is not water`);
-  }
-  if (!game.isWater(toRef)) {
-    throw new Error(`End point (${to[0]}, ${to[1]}) is not water`);
-  }
-
-  // Compute NavMesh path
-  const navMeshPath = navMeshAdapter.findPath(fromRef, toRef, true);
-  const path = pathToCoords(navMeshPath, game);
-
+  const debugInfo = hpaStar.debugInfo;
   const miniMap = game.miniMap();
 
-  // Extract debug info
-  let gateways: Array<[number, number]> | null = null;
-  let initialPath: Array<[number, number]> | null = null;
-  let timings: any = {};
-
-  if (navMeshAdapter.debugInfo) {
-    // Convert gatewayPath (TileRefs on miniMap) to full map coordinates
-    if (navMeshAdapter.debugInfo.gatewayPath) {
-      gateways = navMeshAdapter.debugInfo.gatewayPath.map((tile: TileRef) => {
-        const x = miniMap.x(tile) * 2;
-        const y = miniMap.y(tile) * 2;
-        return [x, y] as [number, number];
-      });
-    }
-
-    // Convert initial path
-    if (navMeshAdapter.debugInfo.initialPath) {
-      initialPath = navMeshAdapter.debugInfo.initialPath.map(
-        (tile: TileRef) => [game.x(tile), game.y(tile)] as [number, number],
-      );
-    }
-
-    timings = navMeshAdapter.debugInfo.timings || {};
+  // Convert node path (miniMap coords) to full map coords
+  let nodePath: Array<[number, number]> | null = null;
+  if (debugInfo?.nodePath) {
+    nodePath = debugInfo.nodePath.map((tile: TileRef) => {
+      const x = miniMap.x(tile) * 2;
+      const y = miniMap.y(tile) * 2;
+      return [x, y] as [number, number];
+    });
   }
 
   return {
-    path,
-    initialPath,
-    gateways,
-    timings,
+    path: pathToCoords(path, game),
     length: path ? path.length : 0,
-    time: timings.total ?? 0,
+    time,
+    debug: {
+      nodePath,
+      initialPath: debugInfo?.initialPath
+        ? pathToCoords(debugInfo.initialPath, game)
+        : null,
+      timings: debugInfo?.timings ?? {},
+    },
   };
 }
 
 /**
- * Compute only PathFinder.Mini path
+ * Compute comparison path using adapter
  */
-export async function computePfMiniPath(
-  mapName: string,
-  from: [number, number],
-  to: [number, number],
-): Promise<PfMiniResult> {
-  const { game } = await loadMap(mapName);
-
-  // Convert coordinates to TileRefs
-  const fromRef = game.ref(from[0], from[1]);
-  const toRef = game.ref(to[0], to[1]);
-
-  // Validate that both points are water tiles
-  if (!game.isWater(fromRef)) {
-    throw new Error(`Start point (${from[0]}, ${from[1]}) is not water`);
-  }
-  if (!game.isWater(toRef)) {
-    throw new Error(`End point (${to[0]}, ${to[1]}) is not water`);
-  }
-
-  // Compute PathFinder.Mini path
-  const pfMiniAdapter = getPfMiniAdapter(mapName, game);
-  const pfMiniStart = performance.now();
-  const pfMiniPath = pfMiniAdapter.findPath(fromRef, toRef);
-  const pfMiniEnd = performance.now();
-
-  const path = pathToCoords(pfMiniPath, game);
-  const time = pfMiniEnd - pfMiniStart;
+function computeComparisonPath(
+  adapter: PathFinder,
+  game: any,
+  fromRef: TileRef,
+  toRef: TileRef,
+  adapterName: string,
+): ComparisonResult {
+  const start = performance.now();
+  const path = adapter.findPath(fromRef, toRef);
+  const time = performance.now() - start;
 
   return {
-    path,
+    adapter: adapterName,
+    path: pathToCoords(path, game),
     length: path ? path.length : 0,
     time,
   };
 }
 
 /**
+ * Compute pathfinding between two points
+ */
+export async function computePath(
+  mapName: string,
+  from: [number, number],
+  to: [number, number],
+  options: { adapters?: string[] } = {},
+): Promise<PathfindResult> {
+  const { game, hpaStar } = await loadMap(mapName);
+
+  // Convert coordinates to TileRefs
+  const fromRef = game.ref(from[0], from[1]);
+  const toRef = game.ref(to[0], to[1]);
+
+  // Validate that both points are water tiles
+  if (!game.isWater(fromRef)) {
+    throw new Error(`Start point (${from[0]}, ${from[1]}) is not water`);
+  }
+  if (!game.isWater(toRef)) {
+    throw new Error(`End point (${to[0]}, ${to[1]}) is not water`);
+  }
+
+  // Compute primary path (HPA* with debug)
+  const primary = computePrimaryPath(hpaStar, game, fromRef, toRef);
+
+  // Compute comparison paths
+  const selectedAdapters = options.adapters ?? COMPARISON_ADAPTERS;
+  const comparisons: ComparisonResult[] = [];
+
+  for (const adapterName of selectedAdapters) {
+    if (!COMPARISON_ADAPTERS.includes(adapterName)) {
+      console.warn(`Unknown adapter: ${adapterName}, skipping`);
+      continue;
+    }
+
+    try {
+      const adapter = getOrCreateAdapter(mapName, adapterName, game);
+      const result = computeComparisonPath(
+        adapter,
+        game,
+        fromRef,
+        toRef,
+        adapterName,
+      );
+      comparisons.push(result);
+    } catch (error) {
+      console.error(`Error with adapter ${adapterName}:`, error);
+      comparisons.push({
+        adapter: adapterName,
+        path: null,
+        length: 0,
+        time: 0,
+      });
+    }
+  }
+
+  return { primary, comparisons };
+}
+
+/**
  * Clear pathfinding adapter caches
  */
 export function clearAdapterCaches() {
-  pfMiniCache.clear();
+  adapterCache.clear();
 }

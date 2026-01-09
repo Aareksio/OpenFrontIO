@@ -6,16 +6,13 @@ const state = {
   mapHeight: 0,
   startPoint: null,
   endPoint: null,
-  navMeshPath: null,
-  navMeshResult: null, // Store full NavMesh result including timing
-  pfMiniPath: null,
-  pfMiniResult: null, // Store full PF.Mini result including timing
-  graphDebug: null, // Static graph data (gateways, edges, sectorSize) - loaded once per map
-  debugInfo: null, // Per-path debug data (timings, gatewayWaypoints, initialPath)
+  hpaPath: null,
+  hpaResult: null, // Store full HPA* result including timing
+  comparisons: [], // Array of comparison results
+  graphDebug: null, // Static graph data (allNodes, edges, clusterSize) - loaded once per map
+  debugInfo: null, // Per-path debug data (timings, nodePath, initialPath)
   isMapLoading: false, // Loading state for map switching
-  isNavMeshLoading: false, // Separate loading state for NavMesh
-  isPfMiniLoading: false, // Separate loading state for PF.Mini
-  showPfMini: false,
+  isHpaLoading: false, // Separate loading state for HPA*
   activeRefreshButton: null, // Track which refresh button is spinning
 };
 
@@ -32,7 +29,7 @@ let dragStartPanY = 0;
 let mapCanvas, overlayCanvas, interactiveCanvas;
 let mapCtx, overlayCtx, interactiveCtx;
 let mapRendered = false;
-let hoveredGateway = null;
+let hoveredNode = null;
 let hoveredPoint = null; // 'start', 'end', or null
 let draggingPoint = null; // 'start', 'end', or null
 let draggingPointPosition = null; // [x, y] canvas position while dragging
@@ -147,21 +144,8 @@ function initializeControls() {
       }
     });
 
-  // PF.Mini request button
-  document.getElementById("requestPfMini").addEventListener("click", () => {
-    if (
-      state.startPoint &&
-      state.endPoint &&
-      !state.pfMiniPath &&
-      !state.isPfMiniLoading
-    ) {
-      state.showPfMini = true;
-      requestPfMiniOnly(state.startPoint, state.endPoint);
-    }
-  });
-
-  // Refresh NavMesh button
-  document.getElementById("refreshNavMesh").addEventListener("click", (e) => {
+  // Refresh HPA* button
+  document.getElementById("refreshHpa").addEventListener("click", (e) => {
     if (state.startPoint && state.endPoint) {
       const btn = e.currentTarget;
       btn.classList.add("spinning");
@@ -170,22 +154,12 @@ function initializeControls() {
     }
   });
 
-  // Refresh PF.Mini button
-  document.getElementById("refreshPfMini").addEventListener("click", (e) => {
-    if (state.startPoint && state.endPoint && state.pfMiniPath) {
-      const btn = e.currentTarget;
-      btn.classList.add("spinning");
-      state.activeRefreshButton = btn;
-      requestPfMiniOnly(state.startPoint, state.endPoint);
-    }
-  });
-
   // Visualization toggles - all buttons
   [
     "showInitialPath",
-    "showUsedGateways",
+    "showUsedNodes",
     "showColoredMap",
-    "showGateways",
+    "showNodes",
     "showSectorGrid",
     "showEdges",
   ].forEach((id) => {
@@ -197,11 +171,11 @@ function initializeControls() {
       if (id === "showColoredMap") {
         renderMapBackground(2);
       }
-      // Static overlays (sectors, edges, all gateways) go on overlay canvas
-      if (["showGateways", "showSectorGrid", "showEdges"].includes(id)) {
+      // Static overlays (sectors, edges, all nodes) go on overlay canvas
+      if (["showNodes", "showSectorGrid", "showEdges"].includes(id)) {
         renderOverlay(2);
       }
-      // Dynamic elements (paths, highlighted gateways) go on interactive canvas
+      // Dynamic elements (paths, highlighted nodes) go on interactive canvas
       renderInteractive();
     });
   });
@@ -281,11 +255,6 @@ function initializeDragControls() {
       // Start dragging the point
       draggingPoint = pointAtMouse;
       wrapper.style.cursor = "move";
-
-      // Invalidate PF.Mini path since we're changing the route
-      state.pfMiniPath = null;
-      state.pfMiniResult = null;
-      updatePfMiniButton();
     } else {
       // Start panning the map
       isDragging = true;
@@ -355,57 +324,53 @@ function initializeDragControls() {
         wrapper.style.cursor = hoveredPoint ? "move" : "grab";
       }
 
-      // Check for gateway hover (only if gateway visualization is enabled)
-      const showGateways =
-        document.getElementById("showGateways").dataset.active === "true";
-      const showUsedGateways =
-        document.getElementById("showUsedGateways").dataset.active === "true";
+      // Check for node hover (only if node visualization is enabled)
+      const showNodes =
+        document.getElementById("showNodes").dataset.active === "true";
+      const showUsedNodes =
+        document.getElementById("showUsedNodes").dataset.active === "true";
 
       if (
-        (showGateways || showUsedGateways) &&
+        (showNodes || showUsedNodes) &&
         state.graphDebug &&
-        state.graphDebug.allGateways
+        state.graphDebug.allNodes
       ) {
-        // Filter gateways based on what's visible
-        let gatewaysToCheck = state.graphDebug.allGateways;
+        // Filter nodes based on what's visible
+        let nodesToCheck = state.graphDebug.allNodes;
         if (
-          showUsedGateways &&
-          !showGateways &&
+          showUsedNodes &&
+          !showNodes &&
           state.debugInfo &&
-          state.debugInfo.gatewayWaypoints
+          state.debugInfo.nodePath
         ) {
-          // Only show tooltips for used gateways
-          // gatewayWaypoints are coordinates [x, y] matching the map format
-          const usedGatewayCoords = new Set(
-            state.debugInfo.gatewayWaypoints.map(([x, y]) => `${x},${y}`),
+          // Only show tooltips for used nodes
+          // nodePath are coordinates [x, y] matching the map format
+          const usedNodeCoords = new Set(
+            state.debugInfo.nodePath.map(([x, y]) => `${x},${y}`),
           );
-          gatewaysToCheck = state.graphDebug.allGateways.filter((gw) =>
-            usedGatewayCoords.has(`${gw.x * 2},${gw.y * 2}`),
+          nodesToCheck = state.graphDebug.allNodes.filter((node) =>
+            usedNodeCoords.has(`${node.x * 2},${node.y * 2}`),
           );
         }
 
-        const foundGateway = findGatewayAtPosition(
-          canvasX,
-          canvasY,
-          gatewaysToCheck,
-        );
+        const foundNode = findNodeAtPosition(canvasX, canvasY, nodesToCheck);
 
-        if (foundGateway !== hoveredGateway) {
-          hoveredGateway = foundGateway;
-          if (hoveredGateway) {
-            showGatewayTooltip(hoveredGateway, e.clientX, e.clientY);
+        if (foundNode !== hoveredNode) {
+          hoveredNode = foundNode;
+          if (hoveredNode) {
+            showNodeTooltip(hoveredNode, e.clientX, e.clientY);
           } else {
             tooltip.classList.remove("visible");
           }
           renderInteractive();
-        } else if (hoveredGateway) {
+        } else if (hoveredNode) {
           tooltip.style.left = e.clientX + 15 + "px";
           tooltip.style.top = e.clientY + 15 + "px";
         }
       } else {
-        // No gateway visualization enabled, clear any existing tooltip
-        if (hoveredGateway) {
-          hoveredGateway = null;
+        // No node visualization enabled, clear any existing tooltip
+        if (hoveredNode) {
+          hoveredNode = null;
           tooltip.classList.remove("visible");
           renderInteractive();
         }
@@ -451,8 +416,8 @@ function initializeDragControls() {
     tooltip.classList.remove("visible");
     wrapper.style.cursor = "grab";
 
-    const needsRender = hoveredGateway || hoveredPoint;
-    hoveredGateway = null;
+    const needsRender = hoveredNode || hoveredPoint;
+    hoveredNode = null;
     hoveredPoint = null;
 
     if (needsRender) {
@@ -485,19 +450,12 @@ function initializeDragControls() {
 // Initialize timings panel to default state
 function initializeTimingsPanel() {
   // Set initial state to match "no path" state
-  updateTimingsPanel({ navMesh: null, pfMini: null });
-  updatePfMiniButton();
+  updateTimingsPanel({ primary: null, comparisons: [] });
 }
 
 // Handle map clicks for point selection
 function handleMapClick(e) {
-  if (
-    !state.currentMap ||
-    state.isMapLoading ||
-    state.isNavMeshLoading ||
-    state.isPfMiniLoading
-  )
-    return;
+  if (!state.currentMap || state.isMapLoading || state.isHpaLoading) return;
 
   const wrapper = document.getElementById("canvasWrapper");
   const rect = wrapper.getBoundingClientRect();
@@ -555,15 +513,12 @@ function handleMapClick(e) {
 function clearPoints() {
   state.startPoint = null;
   state.endPoint = null;
-  state.navMeshPath = null;
-  state.navMeshResult = null;
-  state.pfMiniPath = null;
-  state.pfMiniResult = null;
+  state.hpaPath = null;
+  state.hpaResult = null;
+  state.comparisons = [];
   state.debugInfo = null;
-  state.showPfMini = false;
   updatePointDisplay();
   hidePathInfo();
-  updatePfMiniButton();
   updateURLState(); // Remove points from URL
   renderInteractive();
 }
@@ -686,15 +641,12 @@ async function switchMap(mapName, restorePointsFromURL = false) {
     // Clear paths (but don't update URL yet if we're restoring from URL)
     state.startPoint = null;
     state.endPoint = null;
-    state.navMeshPath = null;
-    state.navMeshResult = null;
-    state.pfMiniPath = null;
-    state.pfMiniResult = null;
+    state.hpaPath = null;
+    state.hpaResult = null;
+    state.comparisons = [];
     state.debugInfo = null;
-    state.showPfMini = false;
     updatePointDisplay();
     hidePathInfo();
-    updatePfMiniButton();
 
     // Size canvases
     mapCanvas.width = state.mapWidth * 2;
@@ -779,10 +731,10 @@ function hideWelcomeScreen() {
   document.getElementById("welcomeScreen").classList.add("hidden");
 }
 
-// Request pathfinding computation (NavMesh only)
+// Request pathfinding computation (HPA* primary + comparisons)
 async function requestPathfinding(from, to) {
   setStatus("Computing path...", true);
-  state.isNavMeshLoading = true;
+  state.isHpaLoading = true;
 
   try {
     const response = await fetch("/api/pathfind", {
@@ -802,151 +754,70 @@ async function requestPathfinding(from, to) {
 
     const result = await response.json();
 
-    // Update state
-    state.navMeshPath = result.path;
-    state.navMeshResult = result; // Store full result for later use
-    // Don't reset pfMiniPath - preserve it across NavMesh refreshes
+    // Update state with new API format
+    state.hpaPath = result.primary.path;
+    state.hpaResult = result.primary;
+    state.comparisons = result.comparisons;
     state.debugInfo = {
-      initialPath: result.initialPath,
-      gatewayWaypoints: result.gateways,
-      timings: result.timings,
+      initialPath: result.primary.debug.initialPath,
+      nodePath: result.primary.debug.nodePath,
+      timings: result.primary.debug.timings,
     };
 
-    // Update UI - preserve existing PF.Mini if it exists
-    updatePathInfo({ navMesh: result, pfMini: state.pfMiniResult });
+    // Update UI
+    updatePathInfo(result);
     renderInteractive();
 
     setStatus("Path computed successfully");
   } catch (error) {
     showError(`Pathfinding failed: ${error.message}`);
   } finally {
-    state.isNavMeshLoading = false;
+    state.isHpaLoading = false;
     // Stop refresh button spinning
     if (state.activeRefreshButton) {
       state.activeRefreshButton.classList.remove("spinning");
       state.activeRefreshButton = null;
     }
-  }
-}
-
-// Request PF.Mini computation only (without re-computing NavMesh)
-async function requestPfMiniOnly(from, to) {
-  setStatus("Computing PF.Mini path...", true);
-  state.isPfMiniLoading = true;
-  updatePfMiniButton(); // Update button to show loading state
-
-  try {
-    const response = await fetch("/api/pathfind-pfmini", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        map: state.currentMap,
-        from,
-        to,
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || "Pathfinding failed");
-    }
-
-    const result = await response.json();
-
-    // Update only PF.Mini path (preserve existing NavMesh path and debug info)
-    state.pfMiniPath = result.path;
-    state.pfMiniResult = result; // Store full result
-
-    // Update UI (preserve existing NavMesh result)
-    updatePathInfo({ navMesh: state.navMeshResult, pfMini: result });
-    renderInteractive();
-
-    setStatus("PF.Mini path computed successfully");
-  } catch (error) {
-    showError(`PF.Mini pathfinding failed: ${error.message}`);
-  } finally {
-    state.isPfMiniLoading = false;
-    // Stop refresh button spinning
-    if (state.activeRefreshButton) {
-      state.activeRefreshButton.classList.remove("spinning");
-      state.activeRefreshButton = null;
-    }
-    // Update button state
-    updatePfMiniButton();
   }
 }
 
 // Update point display
 function updatePointDisplay() {
-  updatePfMiniButton();
-}
-
-// Update PF.Mini button state
-function updatePfMiniButton() {
-  const button = document.getElementById("requestPfMini");
-  const requestSection = document.getElementById("pfMiniRequestSection");
-
-  if (state.pfMiniPath) {
-    // Hide button when PF.Mini is already computed
-    requestSection.style.display = "none";
-  } else if (state.isPfMiniLoading && !state.activeRefreshButton) {
-    // Show loading spinner when computing PF.Mini (not a refresh)
-    requestSection.style.display = "block";
-    button.disabled = true;
-    button.innerHTML = 'Computing... <span class="loading-spinner"></span>';
-  } else if (state.startPoint && state.endPoint && state.navMeshPath) {
-    // Show and enable button when points are set and NavMesh path exists
-    requestSection.style.display = "block";
-    button.disabled = false;
-    button.textContent = "Request PathFinder.Mini";
-  } else {
-    // Show but disable button when points aren't set
-    requestSection.style.display = "block";
-    button.disabled = true;
-    button.textContent = "Request PathFinder.Mini";
-  }
+  // No-op now, kept for compatibility
 }
 
 // Update path info in UI
 function updatePathInfo(result) {
-  // Update PF.Mini legend visibility
-  if (result.pfMini) {
-    document.getElementById("pfMiniLegend").style.display = "flex";
-  } else {
-    document.getElementById("pfMiniLegend").style.display = "none";
-  }
-
   // Update timings panel
   updateTimingsPanel(result);
-
-  // Update PF.Mini button
-  updatePfMiniButton();
 }
 
 // Update the dedicated timings panel
 function updateTimingsPanel(result) {
-  const navMesh = result.navMesh;
+  const primary = result.primary;
+  const timings = primary && primary.debug ? primary.debug.timings : {};
 
-  // Show NavMesh time and path length (or 0.00 in light gray if no data)
-  const navMeshTimeEl = document.getElementById("navMeshTime");
-  if (navMesh && navMesh.time > 0) {
-    navMeshTimeEl.textContent = `${navMesh.time.toFixed(2)}ms`;
-    navMeshTimeEl.classList.remove("faded");
+  // Use timings.total (excludes debug overhead) instead of raw time
+  const hpaTime = timings.total || 0;
+
+  // Show HPA* time and path length (or 0.00 in light gray if no data)
+  const hpaTimeEl = document.getElementById("hpaTime");
+  if (hpaTime > 0) {
+    hpaTimeEl.textContent = `${hpaTime.toFixed(2)}ms`;
+    hpaTimeEl.classList.remove("faded");
   } else {
-    navMeshTimeEl.textContent = "0.00ms";
-    navMeshTimeEl.classList.add("faded");
+    hpaTimeEl.textContent = "0.00ms";
+    hpaTimeEl.classList.add("faded");
   }
 
-  const navMeshTilesEl = document.getElementById("navMeshTiles");
-  if (navMesh && navMesh.length > 0) {
-    navMeshTilesEl.textContent = `- ${navMesh.length} tiles`;
+  const hpaTilesEl = document.getElementById("hpaTiles");
+  if (primary && primary.length > 0) {
+    hpaTilesEl.textContent = `- ${primary.length} tiles`;
   } else {
-    navMeshTilesEl.textContent = "";
+    hpaTilesEl.textContent = "";
   }
 
   // Show timing breakdown - always visible with gray dashes when no data
-  const timings = navMesh && navMesh.timings ? navMesh.timings : {};
-
   // Early Exit
   const earlyExitEl = document.getElementById("timingEarlyExit");
   const earlyExitValueEl = document.getElementById("timingEarlyExitValue");
@@ -959,30 +830,30 @@ function updateTimingsPanel(result) {
     earlyExitValueEl.style.color = "#666";
   }
 
-  // Find Gateways
-  const findGatewaysEl = document.getElementById("timingFindGateways");
-  const findGatewaysValueEl = document.getElementById(
-    "timingFindGatewaysValue",
-  );
-  findGatewaysEl.style.display = "flex";
-  if (timings.findGateways !== undefined) {
-    findGatewaysValueEl.textContent = `${timings.findGateways.toFixed(2)}ms`;
-    findGatewaysValueEl.style.color = "#f5f5f5";
+  // Find Nodes
+  const findNodesEl = document.getElementById("timingFindNodes");
+  const findNodesValueEl = document.getElementById("timingFindNodesValue");
+  findNodesEl.style.display = "flex";
+  if (timings.findNodes !== undefined) {
+    findNodesValueEl.textContent = `${timings.findNodes.toFixed(2)}ms`;
+    findNodesValueEl.style.color = "#f5f5f5";
   } else {
-    findGatewaysValueEl.textContent = "—";
-    findGatewaysValueEl.style.color = "#666";
+    findNodesValueEl.textContent = "—";
+    findNodesValueEl.style.color = "#666";
   }
 
-  // Gateway Path
-  const gatewayPathEl = document.getElementById("timingGatewayPath");
-  const gatewayPathValueEl = document.getElementById("timingGatewayPathValue");
-  gatewayPathEl.style.display = "flex";
-  if (timings.findGatewayPath !== undefined) {
-    gatewayPathValueEl.textContent = `${timings.findGatewayPath.toFixed(2)}ms`;
-    gatewayPathValueEl.style.color = "#f5f5f5";
+  // Abstract Path
+  const abstractPathEl = document.getElementById("timingAbstractPath");
+  const abstractPathValueEl = document.getElementById(
+    "timingAbstractPathValue",
+  );
+  abstractPathEl.style.display = "flex";
+  if (timings.findAbstractPath !== undefined) {
+    abstractPathValueEl.textContent = `${timings.findAbstractPath.toFixed(2)}ms`;
+    abstractPathValueEl.style.color = "#f5f5f5";
   } else {
-    gatewayPathValueEl.textContent = "—";
-    gatewayPathValueEl.style.color = "#666";
+    abstractPathValueEl.textContent = "—";
+    abstractPathValueEl.style.color = "#666";
   }
 
   // Initial Path
@@ -1009,43 +880,41 @@ function updateTimingsPanel(result) {
     smoothPathValueEl.style.color = "#666";
   }
 
-  // Show PF.Mini time and speedup if available
-  if (result.pfMini && result.pfMini.time > 0) {
-    const pfMiniTimeEl = document.getElementById("pfMiniTime");
-    pfMiniTimeEl.textContent = `${result.pfMini.time.toFixed(2)}ms`;
-    pfMiniTimeEl.classList.remove("faded");
+  // Show comparisons section
+  const comparisonsSection = document.getElementById("comparisonsSection");
+  const comparisonsContainer = document.getElementById("comparisonsContainer");
 
-    document.getElementById("pfMiniTiles").textContent =
-      `- ${result.pfMini.length} tiles`;
-    document.getElementById("pfMiniTimingSection").style.display = "block";
+  if (result.comparisons && result.comparisons.length > 0) {
+    comparisonsSection.style.display = "block";
 
-    // Calculate and show speedup
-    if (navMesh && navMesh.time > 0) {
-      const speedup = result.pfMini.time / navMesh.time;
-      document.getElementById("speedupValue").textContent =
-        `${speedup.toFixed(1)}x`;
-      document.getElementById("speedupSection").style.display = "block";
-    } else {
-      document.getElementById("speedupSection").style.display = "none";
+    // Build comparison rows
+    let html = "";
+    for (const comp of result.comparisons) {
+      // Slowdown = comparison time / HPA time (>1 means comparison is slower)
+      const slowdown = hpaTime > 0 && comp.time > 0 ? comp.time / hpaTime : 0;
+      const speedupColor = slowdown <= 1 ? "#ff6666" : "#00ff88";
+      const speedupText = slowdown > 0 ? `${slowdown.toFixed(1)}x` : "—";
+
+      html += `
+        <div class="comparison-row">
+          <span class="comp-name">${comp.adapter}</span>
+          <span class="comp-tiles">${comp.length}</span>
+          <span class="comp-time">${comp.time.toFixed(2)}ms</span>
+          <span class="comp-speedup" style="color: ${speedupColor}">${speedupText}</span>
+        </div>
+      `;
     }
-  } else if (result.pfMini) {
-    // PF.Mini exists but time is 0
-    const pfMiniTimeEl = document.getElementById("pfMiniTime");
-    pfMiniTimeEl.textContent = "—";
-    pfMiniTimeEl.classList.add("faded");
-    document.getElementById("pfMiniTiles").textContent = "";
-    document.getElementById("pfMiniTimingSection").style.display = "block";
-    document.getElementById("speedupSection").style.display = "none";
+    comparisonsContainer.innerHTML = html;
   } else {
-    document.getElementById("pfMiniTimingSection").style.display = "none";
-    document.getElementById("speedupSection").style.display = "none";
+    comparisonsSection.style.display = "none";
+    comparisonsContainer.innerHTML = "";
   }
 }
 
 // Reset path info to show dashes
 function hidePathInfo() {
   // Don't hide the panel, just reset to show dashes
-  updateTimingsPanel({ navMesh: null, pfMini: null });
+  updateTimingsPanel({ primary: null, comparisons: [] });
 }
 
 // Set status message
@@ -1132,7 +1001,7 @@ function renderMapBackground(scale) {
   mapCtx.putImageData(imageData, 0, 0);
 }
 
-// Render static debug overlays (sectors, edges, all gateways) at map scale
+// Render static debug overlays (clusters, edges, all nodes) at map scale
 function renderOverlay(scale) {
   overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
@@ -1142,19 +1011,19 @@ function renderOverlay(scale) {
     document.getElementById("showSectorGrid").dataset.active === "true";
   const showEdges =
     document.getElementById("showEdges").dataset.active === "true";
-  const showGateways =
-    document.getElementById("showGateways").dataset.active === "true";
+  const showNodes =
+    document.getElementById("showNodes").dataset.active === "true";
 
-  // Draw sector grid (sectorSize is in mini map coords, scale 2x for real map)
-  if (showSectorGrid && state.graphDebug.sectorSize) {
-    const sectorSize = state.graphDebug.sectorSize * 2;
+  // Draw cluster grid (clusterSize is in mini map coords, scale 2x for real map)
+  if (showSectorGrid && state.graphDebug.clusterSize) {
+    const clusterSize = state.graphDebug.clusterSize * 2;
     overlayCtx.strokeStyle = "#777777";
     overlayCtx.lineWidth = scale * 0.5;
     overlayCtx.globalAlpha = 0.7;
     overlayCtx.setLineDash([5 * scale, 5 * scale]);
 
     // Vertical lines
-    for (let x = 0; x <= state.mapWidth; x += sectorSize) {
+    for (let x = 0; x <= state.mapWidth; x += clusterSize) {
       overlayCtx.beginPath();
       overlayCtx.moveTo(x * scale, 0);
       overlayCtx.lineTo(x * scale, state.mapHeight * scale);
@@ -1162,7 +1031,7 @@ function renderOverlay(scale) {
     }
 
     // Horizontal lines
-    for (let y = 0; y <= state.mapHeight; y += sectorSize) {
+    for (let y = 0; y <= state.mapHeight; y += clusterSize) {
       overlayCtx.beginPath();
       overlayCtx.moveTo(0, y * scale);
       overlayCtx.lineTo(state.mapWidth * scale, y * scale);
@@ -1192,17 +1061,17 @@ function renderOverlay(scale) {
     overlayCtx.globalAlpha = 1.0;
   }
 
-  // Draw all gateways
-  if (showGateways && state.graphDebug.allGateways) {
+  // Draw all nodes
+  if (showNodes && state.graphDebug.allNodes) {
     overlayCtx.fillStyle = "#aaaaaa";
-    const gatewayRadius = scale * 1.5;
+    const nodeRadius = scale * 1.5;
 
-    for (const gw of state.graphDebug.allGateways) {
+    for (const node of state.graphDebug.allNodes) {
       overlayCtx.beginPath();
       overlayCtx.arc(
-        (gw.x * 2 + 0.5) * scale,
-        (gw.y * 2 + 0.5) * scale,
-        gatewayRadius,
+        (node.x * 2 + 0.5) * scale,
+        (node.y * 2 + 0.5) * scale,
+        nodeRadius,
         0,
         Math.PI * 2,
       );
@@ -1234,24 +1103,19 @@ function renderInteractive() {
   const markerSize = Math.max(4, 3 * zoomLevel);
 
   // Check what to show
-  const showUsedGateways =
-    document.getElementById("showUsedGateways").dataset.active === "true";
+  const showUsedNodes =
+    document.getElementById("showUsedNodes").dataset.active === "true";
   const showInitialPath =
     document.getElementById("showInitialPath").dataset.active === "true";
   const showEdges =
     document.getElementById("showEdges").dataset.active === "true";
-  const showGateways =
-    document.getElementById("showGateways").dataset.active === "true";
+  const showNodes =
+    document.getElementById("showNodes").dataset.active === "true";
 
-  // Draw highlighted edges for hovered gateway only
-  if (
-    hoveredGateway &&
-    showEdges &&
-    state.graphDebug &&
-    state.graphDebug.edges
-  ) {
+  // Draw highlighted edges for hovered node only
+  if (hoveredNode && showEdges && state.graphDebug && state.graphDebug.edges) {
     const connectedEdges = state.graphDebug.edges.filter(
-      (e) => e.fromId === hoveredGateway.id || e.toId === hoveredGateway.id,
+      (e) => e.fromId === hoveredNode.id || e.toId === hoveredNode.id,
     );
 
     interactiveCtx.strokeStyle = "#00ffaa";
@@ -1270,31 +1134,30 @@ function renderInteractive() {
     interactiveCtx.globalAlpha = 1.0;
   }
 
-  // Draw highlighted gateways (hovered + connected) only
+  // Draw highlighted nodes (hovered + connected) only
   if (
-    hoveredGateway &&
-    showGateways &&
+    hoveredNode &&
+    showNodes &&
     state.graphDebug &&
-    state.graphDebug.allGateways
+    state.graphDebug.allNodes
   ) {
-    // Get connected gateways
-    let connectedGatewayIds = new Set();
+    // Get connected nodes
+    let connectedNodeIds = new Set();
     if (state.graphDebug.edges) {
       const connectedEdges = state.graphDebug.edges.filter(
-        (e) => e.fromId === hoveredGateway.id || e.toId === hoveredGateway.id,
+        (e) => e.fromId === hoveredNode.id || e.toId === hoveredNode.id,
       );
       connectedEdges.forEach((edge) => {
-        if (edge.fromId !== hoveredGateway.id)
-          connectedGatewayIds.add(edge.fromId);
-        if (edge.toId !== hoveredGateway.id) connectedGatewayIds.add(edge.toId);
+        if (edge.fromId !== hoveredNode.id) connectedNodeIds.add(edge.fromId);
+        if (edge.toId !== hoveredNode.id) connectedNodeIds.add(edge.toId);
       });
     }
 
-    // Draw connected gateways
-    for (const gwId of connectedGatewayIds) {
-      const gw = state.graphDebug.allGateways.find((g) => g.id === gwId);
-      if (gw) {
-        const screen = mapToScreen(gw.x * 2, gw.y * 2);
+    // Draw connected nodes
+    for (const nodeId of connectedNodeIds) {
+      const node = state.graphDebug.allNodes.find((n) => n.id === nodeId);
+      if (node) {
+        const screen = mapToScreen(node.x * 2, node.y * 2);
         interactiveCtx.fillStyle = "#00ff88";
         interactiveCtx.strokeStyle = "#ffffff";
         interactiveCtx.lineWidth = Math.max(1, zoomLevel * 0.3);
@@ -1311,8 +1174,8 @@ function renderInteractive() {
       }
     }
 
-    // Draw hovered gateway on top
-    const screen = mapToScreen(hoveredGateway.x * 2, hoveredGateway.y * 2);
+    // Draw hovered node on top
+    const screen = mapToScreen(hoveredNode.x * 2, hoveredNode.y * 2);
     interactiveCtx.fillStyle = "#ffff00";
     interactiveCtx.strokeStyle = "#ffffff";
     interactiveCtx.lineWidth = Math.max(1, zoomLevel * 0.5);
@@ -1353,16 +1216,16 @@ function renderInteractive() {
     interactiveCtx.stroke();
   }
 
-  // Draw NavMesh path
-  if (state.navMeshPath && state.navMeshPath.length > 0) {
+  // Draw HPA* path
+  if (state.hpaPath && state.hpaPath.length > 0) {
     interactiveCtx.strokeStyle = "#00ffff";
     interactiveCtx.lineWidth = Math.max(1, zoomLevel);
     interactiveCtx.lineCap = "round";
     interactiveCtx.lineJoin = "round";
     interactiveCtx.beginPath();
 
-    for (let i = 0; i < state.navMeshPath.length; i++) {
-      const [x, y] = state.navMeshPath[i];
+    for (let i = 0; i < state.hpaPath.length; i++) {
+      const [x, y] = state.hpaPath[i];
       const screen = mapToScreen(x + 0.5, y + 0.5);
       if (i === 0) {
         interactiveCtx.moveTo(screen.x, screen.y);
@@ -1373,36 +1236,16 @@ function renderInteractive() {
     interactiveCtx.stroke();
   }
 
-  // Draw PF.Mini path
-  if (state.pfMiniPath && state.pfMiniPath.length > 0) {
-    interactiveCtx.strokeStyle = "#ffaa00";
-    interactiveCtx.lineWidth = Math.max(1, zoomLevel);
-    interactiveCtx.lineCap = "round";
-    interactiveCtx.lineJoin = "round";
-    interactiveCtx.beginPath();
-
-    for (let i = 0; i < state.pfMiniPath.length; i++) {
-      const [x, y] = state.pfMiniPath[i];
-      const screen = mapToScreen(x + 0.5, y + 0.5);
-      if (i === 0) {
-        interactiveCtx.moveTo(screen.x, screen.y);
-      } else {
-        interactiveCtx.lineTo(screen.x, screen.y);
-      }
-    }
-    interactiveCtx.stroke();
-  }
-
-  // Draw used gateways (highlighted)
-  if (showUsedGateways && state.debugInfo && state.debugInfo.gatewayWaypoints) {
+  // Draw used nodes (highlighted)
+  if (showUsedNodes && state.debugInfo && state.debugInfo.nodePath) {
     interactiveCtx.fillStyle = "#ffff00";
-    const usedGatewayRadius = Math.max(3, zoomLevel * 2.5);
+    const usedNodeRadius = Math.max(3, zoomLevel * 2.5);
 
-    for (const [x, y] of state.debugInfo.gatewayWaypoints) {
-      // Gateways are coordinates [x, y] in the same format as path
+    for (const [x, y] of state.debugInfo.nodePath) {
+      // Nodes are coordinates [x, y] in the same format as path
       const screen = mapToScreen(x + 0.5, y + 0.5);
       interactiveCtx.beginPath();
-      interactiveCtx.arc(screen.x, screen.y, usedGatewayRadius, 0, Math.PI * 2);
+      interactiveCtx.arc(screen.x, screen.y, usedNodeRadius, 0, Math.PI * 2);
       interactiveCtx.fill();
     }
   }
@@ -1472,41 +1315,40 @@ function renderInteractive() {
   }
 }
 
-function findGatewayAtPosition(canvasX, canvasY, gatewaysToCheck = null) {
-  const gateways =
-    gatewaysToCheck || (state.graphDebug && state.graphDebug.allGateways);
-  if (!gateways) {
+function findNodeAtPosition(canvasX, canvasY, nodesToCheck = null) {
+  const nodes = nodesToCheck || (state.graphDebug && state.graphDebug.allNodes);
+  if (!nodes) {
     return null;
   }
 
   const threshold = 10;
 
-  for (const gw of gateways) {
-    const gwX = gw.x * 2;
-    const gwY = gw.y * 2;
-    const dx = Math.abs(canvasX - gwX);
-    const dy = Math.abs(canvasY - gwY);
+  for (const node of nodes) {
+    const nodeX = node.x * 2;
+    const nodeY = node.y * 2;
+    const dx = Math.abs(canvasX - nodeX);
+    const dy = Math.abs(canvasY - nodeY);
 
     if (dx < threshold && dy < threshold) {
-      return gw;
+      return node;
     }
   }
 
   return null;
 }
 
-// Show gateway tooltip
-function showGatewayTooltip(gateway, mouseX, mouseY) {
+// Show node tooltip
+function showNodeTooltip(node, mouseX, mouseY) {
   const tooltip = document.getElementById("tooltip");
 
   const connectedEdges = state.graphDebug.edges.filter(
-    (e) => e.fromId === gateway.id || e.toId === gateway.id,
+    (e) => e.fromId === node.id || e.toId === node.id,
   );
 
   const selfLoops = connectedEdges.filter((e) => e.fromId === e.toId);
 
-  let html = `<strong>Gateway ${gateway.id}</strong><br>`;
-  html += `Position: (${gateway.x * 2}, ${gateway.y * 2})<br>`;
+  let html = `<strong>Node ${node.id}</strong><br>`;
+  html += `Position: (${node.x * 2}, ${node.y * 2})<br>`;
   html += `<strong>Edges: ${connectedEdges.length}</strong>`;
 
   if (selfLoops.length > 0) {
@@ -1516,46 +1358,24 @@ function showGatewayTooltip(gateway, mouseX, mouseY) {
   if (connectedEdges.length > 0) {
     html += '<br><div style="margin-top: 5px; font-size: 11px;">';
 
-    const outgoing = connectedEdges.filter(
-      (e) => e.fromId === gateway.id && e.toId !== gateway.id,
-    );
-    const incoming = connectedEdges.filter(
-      (e) => e.toId === gateway.id && e.fromId !== gateway.id,
-    );
+    // Edges are bidirectional now, just show connected nodes
+    const connected = connectedEdges.filter((e) => e.fromId !== e.toId);
 
-    if (outgoing.length > 0) {
-      html += `<div style="color: #88ff88;">Outgoing (${outgoing.length}):</div>`;
-      outgoing.slice(0, 5).forEach((edge) => {
-        const pathLen = edge.path ? edge.path.length : 0;
-        html += `  → GW ${edge.toId}: cost ${edge.cost.toFixed(1)}`;
-        if (pathLen > 0) html += ` (${pathLen} tiles)`;
-        html += "<br>";
+    if (connected.length > 0) {
+      html += `<div style="color: #88ff88;">Connected (${connected.length}):</div>`;
+      connected.slice(0, 8).forEach((edge) => {
+        const otherId = edge.fromId === node.id ? edge.toId : edge.fromId;
+        html += `  ↔ Node ${otherId}: cost ${edge.cost.toFixed(1)}<br>`;
       });
-      if (outgoing.length > 5) {
-        html += `  ... and ${outgoing.length - 5} more<br>`;
-      }
-    }
-
-    if (incoming.length > 0) {
-      html += `<div style="color: #ffaa88;">Incoming (${incoming.length}):</div>`;
-      incoming.slice(0, 5).forEach((edge) => {
-        const pathLen = edge.path ? edge.path.length : 0;
-        html += `  ← GW ${edge.fromId}: cost ${edge.cost.toFixed(1)}`;
-        if (pathLen > 0) html += ` (${pathLen} tiles)`;
-        html += "<br>";
-      });
-      if (incoming.length > 5) {
-        html += `  ... and ${incoming.length - 5} more<br>`;
+      if (connected.length > 8) {
+        html += `  ... and ${connected.length - 8} more<br>`;
       }
     }
 
     if (selfLoops.length > 0) {
       html += `<div style="color: #ff4444;">Self-loops (${selfLoops.length}):</div>`;
       selfLoops.forEach((edge) => {
-        const pathLen = edge.path ? edge.path.length : 0;
-        html += `  ⟲ cost ${edge.cost.toFixed(1)}`;
-        if (pathLen > 0) html += ` (${pathLen} tiles)`;
-        html += "<br>";
+        html += `  ⟲ cost ${edge.cost.toFixed(1)}<br>`;
       });
     }
 
