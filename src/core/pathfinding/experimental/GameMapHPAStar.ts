@@ -2,7 +2,6 @@
 
 import { Game } from "../../game/Game";
 import { TileRef } from "../../game/GameMap";
-import { FastBFS } from "../navmesh/FastBFS";
 import {
   AbstractGraph,
   AbstractGraphBuilder,
@@ -11,6 +10,7 @@ import {
 import { AbstractGraphAStar } from "./AbstractGraphAStar";
 import { AStar } from "./AStar";
 import { BoundedAStar } from "./BoundedAStar";
+import { TileBFS } from "./TileBFS";
 
 type PathDebugInfo = {
   nodePath: TileRef[] | null;
@@ -32,12 +32,12 @@ type PathDebugInfo = {
 };
 
 export class GameMapHPAStar implements AStar {
-  private graph!: AbstractGraph;
+  private graph: AbstractGraph;
   private initialized = false;
-  private fastBFS!: FastBFS;
-  private abstractAStar!: AbstractGraphAStar;
-  private localAStar!: BoundedAStar;
-  private localAStarMultiCluster!: BoundedAStar;
+  private tileBFS: TileBFS;
+  private abstractAStar: AbstractGraphAStar;
+  private localAStar: BoundedAStar;
+  private localAStarMultiCluster: BoundedAStar;
 
   public debugInfo: PathDebugInfo | null = null;
 
@@ -57,8 +57,8 @@ export class GameMapHPAStar implements AStar {
     );
     this.graph = graphBuilder.build(debug);
 
-    // FastBFS for nearest node search
-    this.fastBFS = new FastBFS(miniMap.width() * miniMap.height());
+    // BFS for nearest node search
+    this.tileBFS = new TileBFS(miniMap.width() * miniMap.height());
 
     const clusterSize = AbstractGraphBuilder.CLUSTER_SIZE;
 
@@ -443,7 +443,7 @@ export class GameMapHPAStar implements AStar {
     const candidateNodes = cluster.nodeIds.map((id) => this.graph.getNode(id)!);
     const maxDistance = clusterSize * clusterSize;
 
-    return this.fastBFS.search(
+    return this.tileBFS.search(
       miniMap.width(),
       miniMap.height(),
       miniFrom,

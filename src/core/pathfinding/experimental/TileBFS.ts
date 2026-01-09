@@ -1,11 +1,12 @@
-export interface FastBFSAdapter<T> {
+export interface TileBFSAdapter<T> {
   visitor(node: number, dist: number): T | null | undefined;
   isValidNode(node: number): boolean;
 }
 
-// Optimized BFS using stamp-based visited tracking and typed array queue
-export class FastBFS {
+// 4-direction grid BFS with stamp-based visited tracking
+export class TileBFS {
   private stamp = 1;
+
   private readonly visitedStamp: Uint32Array;
   private readonly queue: Int32Array;
   private readonly dist: Uint16Array;
@@ -21,8 +22,8 @@ export class FastBFS {
     height: number,
     start: number,
     maxDistance: number,
-    isValidNode: FastBFSAdapter<T>["isValidNode"],
-    visitor: FastBFSAdapter<T>["visitor"],
+    isValidNode: TileBFSAdapter<T>["isValidNode"],
+    visitor: TileBFSAdapter<T>["visitor"],
   ): T | null {
     const stamp = this.nextStamp();
     const lastRowStart = (height - 1) * width;

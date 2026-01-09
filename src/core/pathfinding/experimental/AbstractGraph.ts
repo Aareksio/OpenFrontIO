@@ -1,8 +1,8 @@
 // Abstract Graph for HPA* - Hierarchical Pathfinding A*
 
 import { GameMap, TileRef } from "../../game/GameMap";
-import { FastBFS } from "../navmesh/FastBFS";
 import { GameMapWaterComponents } from "./GameMapWaterComponents";
+import { TileBFS } from "./TileBFS";
 
 export interface AbstractNode {
   id: number;
@@ -176,7 +176,7 @@ export class AbstractGraphBuilder {
   private readonly height: number;
   private readonly clustersX: number;
   private readonly clustersY: number;
-  private readonly fastBFS: FastBFS;
+  private readonly tileBFS: TileBFS;
   private readonly waterComponents: GameMapWaterComponents;
 
   // Build state
@@ -196,7 +196,7 @@ export class AbstractGraphBuilder {
     this.height = map.height();
     this.clustersX = Math.ceil(this.width / clusterSize);
     this.clustersY = Math.ceil(this.height / clusterSize);
-    this.fastBFS = new FastBFS(this.width * this.height);
+    this.tileBFS = new TileBFS(this.width * this.height);
     this.waterComponents = new GameMapWaterComponents(map);
   }
 
@@ -609,7 +609,7 @@ export class AbstractGraphBuilder {
     const reachable = new Map<number, number>();
     let foundCount = 0;
 
-    this.fastBFS.search(
+    this.tileBFS.search(
       this.map.width(),
       this.map.height(),
       from,
