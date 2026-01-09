@@ -8,7 +8,7 @@ import {
   UnitType,
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
-import { PathFinder, PathFinders, PathStatus } from "../pathfinding/PathFinder";
+import { PathFinder, PathFinding, PathStatus } from "../pathfinding/PathFinder";
 import { PseudoRandom } from "../PseudoRandom";
 import { ShellExecution } from "./ShellExecution";
 
@@ -16,7 +16,7 @@ export class WarshipExecution implements Execution {
   private random: PseudoRandom;
   private warship: Unit;
   private mg: Game;
-  private pathfinder: PathFinder;
+  private pathfinder: PathFinder<TileRef>;
   private lastShellAttack = 0;
   private alreadySentShell = new Set<Unit>();
 
@@ -26,7 +26,7 @@ export class WarshipExecution implements Execution {
 
   init(mg: Game, ticks: number): void {
     this.mg = mg;
-    this.pathfinder = PathFinders.Water(mg);
+    this.pathfinder = PathFinding.Water(mg);
     this.random = new PseudoRandom(mg.ticks());
     if (isUnit(this.input)) {
       this.warship = this.input;

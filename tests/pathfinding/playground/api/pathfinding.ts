@@ -30,7 +30,7 @@ export interface PathfindResult {
 }
 
 // Cache adapters per map
-const adapterCache = new Map<string, Map<string, PathFinder>>();
+const adapterCache = new Map<string, Map<string, PathFinder<TileRef>>>();
 
 /**
  * Get or create an adapter for a map
@@ -39,7 +39,7 @@ function getOrCreateAdapter(
   mapName: string,
   adapterName: string,
   game: any,
-): PathFinder {
+): PathFinder<TileRef> {
   if (!adapterCache.has(mapName)) {
     adapterCache.set(mapName, new Map());
   }
@@ -106,7 +106,7 @@ function computePrimaryPath(
  * Compute comparison path using adapter
  */
 function computeComparisonPath(
-  adapter: PathFinder,
+  adapter: PathFinder<TileRef>,
   game: any,
   fromRef: TileRef,
   toRef: TileRef,

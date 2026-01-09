@@ -80,8 +80,10 @@ export class GameMapHPAStar implements AStar {
     this.initialized = true;
   }
 
-  // AStar interface
-  search(from: number, to: number): number[] | null {
+  search(from: number | number[], to: number): number[] | null {
+    if (Array.isArray(from)) {
+      throw new Error("GameMapHPAStar does not support multi-source search");
+    }
     return this.findPath(from as TileRef, to as TileRef);
   }
 
@@ -509,7 +511,6 @@ export class GameMapHPAStar implements AStar {
       maxX = Math.min(miniMap.width() - 1, (clusterX + 2) * clusterSize - 1);
       maxY = Math.min(miniMap.height() - 1, (clusterY + 2) * clusterSize - 1);
     } else {
-      // Single cluster
       minX = clusterX * clusterSize;
       minY = clusterY * clusterSize;
       maxX = Math.min(miniMap.width() - 1, minX + clusterSize - 1);

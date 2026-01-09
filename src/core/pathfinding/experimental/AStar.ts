@@ -1,12 +1,14 @@
 // Generic A* implementation with adapter interface
 // Use when performance is not critical, inline otherwise
-// See GridAStar.ts for fully inlined map grid A* implementation
+// See GameMapAStar.ts for fully inlined water A* implementation
 
+import { Game } from "../../game/Game";
 import { GameMap } from "../../game/GameMap";
+import { StationManager } from "../../game/RailNetworkImpl";
 import { BucketQueue, PriorityQueue } from "./PriorityQueue";
 
 export interface AStar {
-  search(from: number, to: number): number[] | null;
+  search(from: number | number[], to: number): number[] | null;
 }
 
 export interface GenericAStarAdapter {
@@ -14,7 +16,7 @@ export interface GenericAStarAdapter {
   // You can do this and it will be much faster :)
   neighbors(node: number, buffer: Int32Array): number;
 
-  cost(from: number, to: number): number;
+  cost(from: number, to: number, prev?: number): number;
   heuristic(node: number, goal: number): number;
   numNodes(): number;
   maxPriority(): number;
@@ -49,7 +51,7 @@ export class GenericAStar implements AStar {
     this.queue = new BucketQueue(this.adapter.maxPriority());
   }
 
-  search(start: number, goal: number): number[] | null {
+  search(start: number | number[], goal: number): number[] | null {
     // Advance stamp (handles overflow)
     this.stamp++;
     if (this.stamp === 0) {
@@ -67,19 +69,20 @@ export class GenericAStar implements AStar {
     const queue = this.queue;
     const buffer = this.neighborBuffer;
 
-    // Initialize
     queue.clear();
-    gScore[start] = 0;
-    gScoreStamp[start] = stamp;
-    cameFrom[start] = -1;
-
-    queue.push(start, adapter.heuristic(start, goal));
+    const starts = Array.isArray(start) ? start : [start];
+    for (const s of starts) {
+      gScore[s] = 0;
+      gScoreStamp[s] = stamp;
+      cameFrom[s] = -1;
+      queue.push(s, adapter.heuristic(s, goal));
+    }
 
     let iterations = this.maxIterations;
 
     while (!queue.isEmpty()) {
       if (--iterations <= 0) {
-        return null; // Iteration limit
+        return null;
       }
 
       const current = queue.pop();
@@ -92,6 +95,7 @@ export class GenericAStar implements AStar {
       }
 
       const currentG = gScore[current];
+      const prev = cameFrom[current];
       const count = adapter.neighbors(current, buffer);
 
       for (let i = 0; i < count; i++) {
@@ -99,7 +103,9 @@ export class GenericAStar implements AStar {
 
         if (closedStamp[neighbor] === stamp) continue;
 
-        const tentativeG = currentG + adapter.cost(current, neighbor);
+        const tentativeG =
+          currentG +
+          adapter.cost(current, neighbor, prev === -1 ? undefined : prev);
 
         if (gScoreStamp[neighbor] !== stamp || tentativeG < gScore[neighbor]) {
           cameFrom[neighbor] = current;
@@ -110,7 +116,7 @@ export class GenericAStar implements AStar {
       }
     }
 
-    return null; // No path
+    return null;
   }
 
   private buildPath(goal: number): number[] {
@@ -159,25 +165,18 @@ export class WaterGridAdapter implements GenericAStarAdapter {
     let count = 0;
     const x = node % this.width;
 
-    // Up
     if (node >= this.width) {
       const n = node - this.width;
       if (this.gameMap.isWater(n)) buffer[count++] = n;
     }
-
-    // Down
     if (node < this._numNodes - this.width) {
       const n = node + this.width;
       if (this.gameMap.isWater(n)) buffer[count++] = n;
     }
-
-    // Left
     if (x !== 0) {
       const n = node - 1;
       if (this.gameMap.isWater(n)) buffer[count++] = n;
     }
-
-    // Right
     if (x !== this.width - 1) {
       const n = node + 1;
       if (this.gameMap.isWater(n)) buffer[count++] = n;
@@ -186,7 +185,7 @@ export class WaterGridAdapter implements GenericAStarAdapter {
     return count;
   }
 
-  cost(_from: number, _to: number): number {
+  cost(_from: number, _to: number, _prev?: number): number {
     return 1;
   }
 
@@ -199,7 +198,142 @@ export class WaterGridAdapter implements GenericAStarAdapter {
   }
 }
 
-export interface GridGenericAStarConfig {
-  maxIterations?: number;
+export interface RailAdapterConfig {
+  waterPenalty?: number;
+  directionChangePenalty?: number;
   heuristicWeight?: number;
+}
+
+export class RailAdapter implements GenericAStarAdapter {
+  private readonly gameMap: GameMap;
+  private readonly width: number;
+  private readonly height: number;
+  private readonly _numNodes: number;
+  private readonly waterPenalty: number;
+  private readonly directionChangePenalty: number;
+  private readonly heuristicWeight: number;
+
+  constructor(gameMap: GameMap, config: RailAdapterConfig = {}) {
+    this.gameMap = gameMap;
+    this.width = gameMap.width();
+    this.height = gameMap.height();
+    this._numNodes = this.width * this.height;
+    this.waterPenalty = config.waterPenalty ?? 3;
+    this.directionChangePenalty = config.directionChangePenalty ?? 0;
+    this.heuristicWeight = config.heuristicWeight ?? 15;
+  }
+
+  numNodes(): number {
+    return this._numNodes;
+  }
+
+  maxNeighbors(): number {
+    return 4;
+  }
+
+  maxPriority(): number {
+    // Account for water and direction penalties in max priority
+    const maxCost = 1 + this.waterPenalty + this.directionChangePenalty;
+    return this.heuristicWeight * (this.width + this.height) * maxCost;
+  }
+
+  neighbors(node: number, buffer: Int32Array): number {
+    let count = 0;
+    const x = node % this.width;
+    const fromShoreline = this.gameMap.isShoreline(node);
+
+    if (node >= this.width) {
+      const n = node - this.width;
+      if (this.isTraversable(n, fromShoreline)) buffer[count++] = n;
+    }
+    if (node < this._numNodes - this.width) {
+      const n = node + this.width;
+      if (this.isTraversable(n, fromShoreline)) buffer[count++] = n;
+    }
+    if (x !== 0) {
+      const n = node - 1;
+      if (this.isTraversable(n, fromShoreline)) buffer[count++] = n;
+    }
+    if (x !== this.width - 1) {
+      const n = node + 1;
+      if (this.isTraversable(n, fromShoreline)) buffer[count++] = n;
+    }
+
+    return count;
+  }
+
+  private isTraversable(to: number, fromShoreline: boolean): boolean {
+    const toWater = this.gameMap.isWater(to);
+    if (!toWater) return true;
+    return fromShoreline || this.gameMap.isShoreline(to);
+  }
+
+  cost(from: number, to: number, prev?: number): number {
+    let c = this.gameMap.isWater(to) ? 1 + this.waterPenalty : 1;
+
+    if (prev !== undefined && this.directionChangePenalty > 0) {
+      const d1 = from - prev;
+      const d2 = to - from;
+      if (d1 !== d2) {
+        c += this.directionChangePenalty;
+      }
+    }
+
+    return c;
+  }
+
+  heuristic(node: number, goal: number): number {
+    const nx = node % this.width;
+    const ny = (node / this.width) | 0;
+    const gx = goal % this.width;
+    const gy = (goal / this.width) | 0;
+    return this.heuristicWeight * (Math.abs(nx - gx) + Math.abs(ny - gy));
+  }
+}
+
+export class StationGraphAdapter implements GenericAStarAdapter {
+  private manager: StationManager;
+
+  constructor(private game: Game) {
+    this.manager = game.railNetwork().stationManager();
+  }
+
+  numNodes(): number {
+    return this.manager.count();
+  }
+
+  maxNeighbors(): number {
+    return 8;
+  }
+
+  maxPriority(): number {
+    return this.game.map().width() + this.game.map().height();
+  }
+
+  neighbors(node: number, buffer: Int32Array): number {
+    const station = this.manager.getById(node);
+    if (!station) return 0;
+
+    let count = 0;
+    for (const n of station.neighbors()) {
+      buffer[count++] = n.id;
+    }
+    return count;
+  }
+
+  cost(): number {
+    return 1;
+  }
+
+  heuristic(node: number, goal: number): number {
+    const a = this.manager.getById(node);
+    const b = this.manager.getById(goal);
+    if (!a || !b) return 0;
+
+    const ax = this.game.x(a.tile());
+    const ay = this.game.y(a.tile());
+    const bx = this.game.x(b.tile());
+    const by = this.game.y(b.tile());
+    return Math.abs(ax - bx) + Math.abs(ay - by);
+  }
 }

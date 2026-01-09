@@ -7,13 +7,12 @@ import {
   UnitType,
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
-import { AirPathFinder } from "../pathfinding/PathFinding";
-import { PseudoRandom } from "../PseudoRandom";
+import { PathFinder, PathFinding, PathStatus } from "../pathfinding/PathFinder";
 import { NukeType } from "../StatsSchemas";
 
 export class SAMMissileExecution implements Execution {
   private active = true;
-  private pathFinder: AirPathFinder;
+  private pathFinder: PathFinder<TileRef>;
   private SAMMissile: Unit | undefined;
   private mg: Game;
   private speed: number = 0;
@@ -27,7 +26,7 @@ export class SAMMissileExecution implements Execution {
   ) {}
 
   init(mg: Game, ticks: number): void {
-    this.pathFinder = new AirPathFinder(mg, new PseudoRandom(mg.ticks()));
+    this.pathFinder = PathFinding.Air(mg);
     this.mg = mg;
     this.speed = this.mg.config().defaultSamMissileSpeed();
   }
@@ -55,11 +54,11 @@ export class SAMMissileExecution implements Execution {
       return;
     }
     for (let i = 0; i < this.speed; i++) {
-      const result = this.pathFinder.nextTile(
+      const result = this.pathFinder.next(
         this.SAMMissile.tile(),
         this.targetTile,
       );
-      if (result === true) {
+      if (result.status === PathStatus.COMPLETE) {
         this.mg.displayMessage(
           `Missile intercepted ${this.target.type()}`,
           MessageType.SAM_HIT,
@@ -74,8 +73,8 @@ export class SAMMissileExecution implements Execution {
           .stats()
           .bombIntercept(this._owner, this.target.type() as NukeType, 1);
         return;
-      } else {
-        this.SAMMissile.move(result);
+      } else if (result.status === PathStatus.NEXT) {
+        this.SAMMissile.move(result.node);
       }
     }
   }

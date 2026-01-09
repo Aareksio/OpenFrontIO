@@ -11,7 +11,7 @@ import {
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
 import { targetTransportTile } from "../game/TransportShipUtils";
-import { PathFinder, PathFinders, PathStatus } from "../pathfinding/PathFinder";
+import { PathFinder, PathFinding, PathStatus } from "../pathfinding/PathFinder";
 import { AttackExecution } from "./AttackExecution";
 
 const malusForRetreat = 25;
@@ -32,7 +32,7 @@ export class TransportShipExecution implements Execution {
 
   private boat: Unit;
 
-  private pathFinder: PathFinder;
+  private pathFinder: PathFinder<TileRef>;
 
   private originalOwner: Player;
 
@@ -69,7 +69,7 @@ export class TransportShipExecution implements Execution {
 
     this.lastMove = ticks;
     this.mg = mg;
-    this.pathFinder = PathFinders.Water(mg);
+    this.pathFinder = PathFinding.Water(mg);
 
     if (
       this.attacker.unitCount(UnitType.TransportShip) >=

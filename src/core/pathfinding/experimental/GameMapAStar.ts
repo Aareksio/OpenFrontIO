@@ -1,4 +1,4 @@
-// Optimized - fully inlined - A* for GameMap pathfinding
+// Fully inlined A* for water pathfinding - optimized for performance
 
 import { GameMap, TileRef } from "../../game/GameMap";
 import { AStar } from "./AStar";
@@ -37,13 +37,11 @@ export class GameMapAStar implements AStar {
     this.gScore = new Uint32Array(this.numNodes);
     this.cameFrom = new Int32Array(this.numNodes);
 
-    // BucketQueue with max f = weight * (width + height)
     const maxF = this.heuristicWeight * (map.width() + map.height());
     this.queue = new BucketQueue(maxF);
   }
 
-  search(start: number, goal: number): number[] | null {
-    // Advance stamp (handles overflow)
+  search(start: number | number[], goal: number): number[] | null {
     this.stamp++;
     if (this.stamp === 0) {
       this.closedStamp.fill(0);
@@ -63,27 +61,26 @@ export class GameMapAStar implements AStar {
     const weight = this.heuristicWeight;
     const landMask = 1 << LAND_BIT;
 
-    // Goal coordinates for heuristic
     const goalX = goal % width;
     const goalY = (goal / width) | 0;
 
-    // Initialize
     queue.clear();
-    gScore[start] = 0;
-    gScoreStamp[start] = stamp;
-    cameFrom[start] = -1;
-
-    const startX = start % width;
-    const startY = (start / width) | 0;
-    const startH =
-      weight * (Math.abs(startX - goalX) + Math.abs(startY - goalY));
-    queue.push(start, startH);
+    const starts = Array.isArray(start) ? start : [start];
+    for (const s of starts) {
+      gScore[s] = 0;
+      gScoreStamp[s] = stamp;
+      cameFrom[s] = -1;
+      const sx = s % width;
+      const sy = (s / width) | 0;
+      const h = weight * (Math.abs(sx - goalX) + Math.abs(sy - goalY));
+      queue.push(s, h);
+    }
 
     let iterations = this.maxIterations;
 
     while (!queue.isEmpty()) {
       if (--iterations <= 0) {
-        return null; // Iteration limit reached
+        return null;
       }
 
       const current = queue.pop();
@@ -92,14 +89,13 @@ export class GameMapAStar implements AStar {
       closedStamp[current] = stamp;
 
       if (current === goal) {
-        return this.buildPath(start, goal);
+        return this.buildPath(goal);
       }
 
       const currentG = gScore[current];
-      const tentativeG = currentG + 1; // Uniform cost = 1
+      const tentativeG = currentG + 1;
       const currentX = current % width;
 
-      // Up
       if (current >= width) {
         const neighbor = current - width;
         if (
@@ -123,7 +119,6 @@ export class GameMapAStar implements AStar {
         }
       }
 
-      // Down
       if (current < numNodes - width) {
         const neighbor = current + width;
         if (
@@ -147,7 +142,6 @@ export class GameMapAStar implements AStar {
         }
       }
 
-      // Left
       if (currentX !== 0) {
         const neighbor = current - 1;
         if (
@@ -170,7 +164,6 @@ export class GameMapAStar implements AStar {
         }
       }
 
-      // Right
       if (currentX !== width - 1) {
         const neighbor = current + 1;
         if (
@@ -194,10 +187,10 @@ export class GameMapAStar implements AStar {
       }
     }
 
-    return null; // No path found
+    return null;
   }
 
-  private buildPath(start: number, goal: number): TileRef[] {
+  private buildPath(goal: number): TileRef[] {
     const path: TileRef[] = [];
     let current = goal;
 

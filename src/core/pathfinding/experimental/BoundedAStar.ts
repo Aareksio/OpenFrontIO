@@ -1,5 +1,4 @@
-// Bounded A* - fully inlined grid search with bounds checking
-// Generic implementation that works with any GameMap
+// Bounded A* for cluster-local pathfinding in HPA*
 
 import { GameMap, TileRef } from "../../game/GameMap";
 import { AStar } from "./AStar";
@@ -47,28 +46,31 @@ export class BoundedAStar implements AStar {
     this.gScore = new Uint32Array(maxSearchArea);
     this.cameFrom = new Int32Array(maxSearchArea);
 
-    // BucketQueue max priority: worst case is diagonal across search area
-    // For 96x96 area with weight 1: maxF = 1 * (96 + 96) = 192
-    // Use sqrt(maxSearchArea) * 2 * weight as upper bound
     const maxDim = Math.ceil(Math.sqrt(maxSearchArea));
     const maxF = this.heuristicWeight * maxDim * 2;
     this.queue = new BucketQueue(maxF);
   }
 
-  // Implement AStar interface - unbounded search on full map
-  search(start: number, goal: number): number[] | null {
-    // For unbounded search, use full map bounds
-    const startX = start % this.mapWidth;
-    const startY = (start / this.mapWidth) | 0;
+  search(start: number | number[], goal: number): number[] | null {
+    const starts = Array.isArray(start) ? start : [start];
     const goalX = goal % this.mapWidth;
     const goalY = (goal / this.mapWidth) | 0;
 
-    const minX = Math.min(startX, goalX);
-    const maxX = Math.max(startX, goalX);
-    const minY = Math.min(startY, goalY);
-    const maxY = Math.max(startY, goalY);
+    let minX = goalX;
+    let maxX = goalX;
+    let minY = goalY;
+    let maxY = goalY;
 
-    return this.searchBounded(start as TileRef, goal as TileRef, {
+    for (const s of starts) {
+      const sx = s % this.mapWidth;
+      const sy = (s / this.mapWidth) | 0;
+      minX = Math.min(minX, sx);
+      maxX = Math.max(maxX, sx);
+      minY = Math.min(minY, sy);
+      maxY = Math.max(maxY, sy);
+    }
+
+    return this.searchBounded(starts as TileRef[], goal as TileRef, {
       minX,
       maxX,
       minY,
@@ -77,11 +79,10 @@ export class BoundedAStar implements AStar {
   }
 
   searchBounded(
-    start: TileRef,
+    start: TileRef | TileRef[],
     goal: TileRef,
     bounds: SearchBounds,
   ): TileRef[] | null {
-    // Advance stamp (handles overflow)
     this.stamp++;
     if (this.stamp === 0) {
       this.closedStamp.fill(0);
@@ -102,65 +103,51 @@ export class BoundedAStar implements AStar {
 
     const { minX, maxX, minY, maxY } = bounds;
     const boundsWidth = maxX - minX + 1;
-
-    // Goal coordinates for heuristic
     const goalX = goal % mapWidth;
     const goalY = (goal / mapWidth) | 0;
-
     const boundsHeight = maxY - minY + 1;
     const numLocalNodes = boundsWidth * boundsHeight;
 
-    // Validate bounds don't exceed allocated array size
     if (numLocalNodes > this.closedStamp.length) {
-      return null; // Search area exceeds allocated buffer
+      return null;
     }
 
-    // Convert global tile to local index, clamping to bounds
     const toLocal = (tile: TileRef, clamp: boolean = false): number => {
       let x = tile % mapWidth;
       let y = (tile / mapWidth) | 0;
-
       if (clamp) {
-        // Clamp to bounds (for start/goal that may be slightly outside)
         x = Math.max(minX, Math.min(maxX, x));
         y = Math.max(minY, Math.min(maxY, y));
       }
-
       return (y - minY) * boundsWidth + (x - minX);
     };
 
-    // Convert local index back to global tile
     const toGlobal = (local: number): TileRef => {
       const localX = local % boundsWidth;
       const localY = (local / boundsWidth) | 0;
       return ((localY + minY) * mapWidth + (localX + minX)) as TileRef;
     };
 
-    // Clamp start and goal to bounds (they may be slightly outside)
-    const startLocal = toLocal(start, true);
     const goalLocal = toLocal(goal, true);
-
-    // Safety check: ensure local indices are valid
-    if (
-      startLocal < 0 ||
-      startLocal >= numLocalNodes ||
-      goalLocal < 0 ||
-      goalLocal >= numLocalNodes
-    ) {
-      return null; // Start or goal still outside after clamping (shouldn't happen)
+    if (goalLocal < 0 || goalLocal >= numLocalNodes) {
+      return null;
     }
 
-    // Initialize
     queue.clear();
-    gScore[startLocal] = 0;
-    gScoreStamp[startLocal] = stamp;
-    cameFrom[startLocal] = -1;
-
-    const startX = start % mapWidth;
-    const startY = (start / mapWidth) | 0;
-    const startH =
-      weight * (Math.abs(startX - goalX) + Math.abs(startY - goalY));
-    queue.push(startLocal, startH);
+    const starts = Array.isArray(start) ? start : [start];
+    for (const s of starts) {
+      const startLocal = toLocal(s, true);
+      if (startLocal < 0 || startLocal >= numLocalNodes) {
+        continue;
+      }
+      gScore[startLocal] = 0;
+      gScoreStamp[startLocal] = stamp;
+      cameFrom[startLocal] = -1;
+      const sx = s % mapWidth;
+      const sy = (s / mapWidth) | 0;
+      const h = weight * (Math.abs(sx - goalX) + Math.abs(sy - goalY));
+      queue.push(startLocal, h);
+    }
 
     let iterations = this.maxIterations;
 
@@ -175,7 +162,7 @@ export class BoundedAStar implements AStar {
       closedStamp[currentLocal] = stamp;
 
       if (currentLocal === goalLocal) {
-        return this.buildPath(startLocal, goalLocal, toGlobal, numLocalNodes);
+        return this.buildPath(goalLocal, toGlobal, numLocalNodes);
       }
 
       const currentG = gScore[currentLocal];
@@ -186,7 +173,6 @@ export class BoundedAStar implements AStar {
       const currentX = current % mapWidth;
       const currentY = (current / mapWidth) | 0;
 
-      // Up
       if (currentY > minY) {
         const neighbor = current - mapWidth;
         const neighborLocal = currentLocal - boundsWidth;
@@ -210,7 +196,6 @@ export class BoundedAStar implements AStar {
         }
       }
 
-      // Down
       if (currentY < maxY) {
         const neighbor = current + mapWidth;
         const neighborLocal = currentLocal + boundsWidth;
@@ -234,7 +219,6 @@ export class BoundedAStar implements AStar {
         }
       }
 
-      // Left
       if (currentX > minX) {
         const neighbor = current - 1;
         const neighborLocal = currentLocal - 1;
@@ -258,7 +242,6 @@ export class BoundedAStar implements AStar {
         }
       }
 
-      // Right
       if (currentX < maxX) {
         const neighbor = current + 1;
         const neighborLocal = currentLocal + 1;
@@ -287,7 +270,6 @@ export class BoundedAStar implements AStar {
   }
 
   private buildPath(
-    startLocal: number,
     goalLocal: number,
     toGlobal: (local: number) => TileRef,
     maxPathLength: number,
@@ -299,10 +281,6 @@ export class BoundedAStar implements AStar {
     let iterations = 0;
     while (current !== -1 && iterations < maxPathLength) {
       path.push(toGlobal(current));
-      if (current === startLocal) {
-        // Reached start, we're done
-        break;
-      }
       current = this.cameFrom[current];
       iterations++;
     }

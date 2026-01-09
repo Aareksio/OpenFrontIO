@@ -3,7 +3,7 @@ import { TileRef } from "../../game/GameMap";
 import { PathFinder, PathResult, PathStatus } from "../PathFinder";
 import { AStar } from "./AStar";
 
-export class AStarPathFinder implements PathFinder {
+export class TilePathFinder implements PathFinder<TileRef> {
   private pathIndex = 0;
   private path: TileRef[] | null = null;
   private lastTo: TileRef | null = null;
@@ -13,7 +13,7 @@ export class AStarPathFinder implements PathFinder {
     private aStar: AStar,
   ) {}
 
-  next(from: TileRef, to: TileRef, dist?: number): PathResult {
+  next(from: TileRef, to: TileRef, dist?: number): PathResult<TileRef> {
     if (typeof from !== "number" || typeof to !== "number") {
       return { status: PathStatus.NOT_FOUND };
     }
@@ -34,14 +34,12 @@ export class AStarPathFinder implements PathFinder {
       }
     }
 
-    // Reset path cache if destination changed
     if (this.lastTo !== to) {
       this.path = null;
       this.pathIndex = 0;
       this.lastTo = to;
     }
 
-    // Compute path if not cached
     if (this.path === null) {
       this.cachePath(from, to);
 
@@ -50,7 +48,6 @@ export class AStarPathFinder implements PathFinder {
       }
     }
 
-    // Re-compute if unit strayed from expected position
     const expectedPos = this.path[this.pathIndex - 1];
     if (this.pathIndex > 0 && from !== expectedPos) {
       this.cachePath(from, to);
@@ -70,8 +67,14 @@ export class AStarPathFinder implements PathFinder {
     return { status: PathStatus.NEXT, node: nextNode };
   }
 
-  findPath(from: TileRef, to: TileRef): TileRef[] | null {
+  findPath(from: TileRef | TileRef[], to: TileRef): TileRef[] | null {
     return this.aStar.search(from, to);
+  }
+
+  invalidate(): void {
+    this.path = null;
+    this.pathIndex = 0;
+    this.lastTo = null;
   }
 
   private cachePath(from: TileRef, to: TileRef): boolean {
@@ -87,7 +90,6 @@ export class AStarPathFinder implements PathFinder {
 
     this.pathIndex = 0;
 
-    // Skip first node if it's the current position
     if (this.path.length > 0 && this.path[0] === from) {
       this.pathIndex = 1;
     }

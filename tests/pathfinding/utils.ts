@@ -21,11 +21,11 @@ import {
   GenericAStar,
   WaterGridAdapter,
 } from "../../src/core/pathfinding/experimental/AStar";
-import { AStarPathFinder } from "../../src/core/pathfinding/experimental/AStarPathFinder";
 import { GameMapAStar } from "../../src/core/pathfinding/experimental/GameMapAStar";
 import { GameMapHPAStar } from "../../src/core/pathfinding/experimental/GameMapHPAStar";
 import { MiniAStar } from "../../src/core/pathfinding/experimental/MiniAStar";
-import { PathFinder, PathFinders } from "../../src/core/pathfinding/PathFinder";
+import { TilePathFinder } from "../../src/core/pathfinding/experimental/TilePathFinder";
+import { PathFinder, PathFinding } from "../../src/core/pathfinding/PathFinder";
 import { GameConfig } from "../../src/core/Schemas";
 import { TestConfig } from "../util/TestConfig";
 
@@ -50,16 +50,16 @@ export type BenchmarkSummary = {
   avgTime: number;
 };
 
-export function getAdapter(game: Game, name: string): PathFinder {
+export function getAdapter(game: Game, name: string): PathFinder<TileRef> {
   switch (name) {
     case "a.baseline": {
-      return new AStarPathFinder(
+      return new TilePathFinder(
         game,
         new MiniAStar(game, (map) => new GameMapAStar(map)),
       );
     }
     case "a.generic": {
-      return new AStarPathFinder(
+      return new TilePathFinder(
         game,
         new MiniAStar(game, (map) => {
           const adapter = new WaterGridAdapter(map);
@@ -68,7 +68,7 @@ export function getAdapter(game: Game, name: string): PathFinder {
       );
     }
     case "a.full": {
-      return new AStarPathFinder(game, new GameMapAStar(game.map()));
+      return new TilePathFinder(game, new GameMapAStar(game.map()));
     }
     case "hpa": {
       // Recreate GameMapHPAStar without cache, this approach was chosen
@@ -78,10 +78,10 @@ export function getAdapter(game: Game, name: string): PathFinder {
       hpa.initialize();
       (game as any)._waterPathfinder = hpa;
 
-      return PathFinders.Water(game);
+      return PathFinding.Water(game);
     }
     case "hpa.cached":
-      return PathFinders.Water(game);
+      return PathFinding.Water(game);
     default:
       throw new Error(`Unknown pathfinding adapter: ${name}`);
   }
@@ -123,7 +123,7 @@ export async function getScenario(
 }
 
 export function measurePathLength(
-  adapter: PathFinder,
+  adapter: PathFinder<TileRef>,
   route: BenchmarkRoute,
 ): number | null {
   const path = adapter.findPath(route.from, route.to);
@@ -138,7 +138,7 @@ export function measureTime<T>(fn: () => T): { result: T; time: number } {
 }
 
 export function measureExecutionTime(
-  adapter: PathFinder,
+  adapter: PathFinder<TileRef>,
   route: BenchmarkRoute,
   executions: number = 1,
 ): number | null {

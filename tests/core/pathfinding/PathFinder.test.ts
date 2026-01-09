@@ -1,10 +1,10 @@
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { Game } from "../../../src/core/game/Game";
 import { TileRef } from "../../../src/core/game/GameMap";
-import { AStarPathFinder } from "../../../src/core/pathfinding/experimental/AStarPathFinder";
 import { GameMapAStar } from "../../../src/core/pathfinding/experimental/GameMapAStar";
 import { GameMapHPAStar } from "../../../src/core/pathfinding/experimental/GameMapHPAStar";
 import { MiniAStar } from "../../../src/core/pathfinding/experimental/MiniAStar";
+import { TilePathFinder } from "../../../src/core/pathfinding/experimental/TilePathFinder";
 import {
   PathFinder,
   PathStatus,
@@ -14,29 +14,29 @@ import { gameFromString } from "./utils";
 
 type AdapterFactory = {
   name: string;
-  create: (game: Game) => PathFinder;
+  create: (game: Game) => PathFinder<TileRef>;
 };
 
 const adapters: AdapterFactory[] = [
   {
-    name: "AStarPathFinder (baseline)",
+    name: "TilePathFinder (baseline)",
     create: (game) =>
-      new AStarPathFinder(
+      new TilePathFinder(
         game,
         new MiniAStar(game, (map) => new GameMapAStar(map)),
       ),
   },
   {
-    name: "AStarPathFinder (HPA*)",
+    name: "TilePathFinder (HPA*)",
     create: (game) => {
       const hpa = game.waterPathfinder();
       if (!hpa) {
         // Create HPA* if not initialized (for small test maps)
         const newHpa = new GameMapHPAStar(game, { cachePaths: false });
         newHpa.initialize();
-        return new AStarPathFinder(game, newHpa);
+        return new TilePathFinder(game, newHpa);
       }
-      return new AStarPathFinder(game, hpa);
+      return new TilePathFinder(game, hpa);
     },
   },
 ];
