@@ -5,6 +5,10 @@ import { Game } from "../../../../src/core/game/Game.js";
 import { GameMapHPAStar } from "../../../../src/core/pathfinding/experimental/GameMapHPAStar.js";
 import { setupFromPath } from "../../utils.js";
 
+// Available comparison adapters
+// Note: "hpa" runs same algorithm without debug overhead for fair timing comparison
+export const COMPARISON_ADAPTERS = ["hpa", "a.baseline", "a.generic", "a.full"];
+
 export interface MapInfo {
   name: string;
   displayName: string;
@@ -195,6 +199,7 @@ export async function getMapMetadata(mapName: string) {
       edges,
       clusterSize,
     },
+    adapters: COMPARISON_ADAPTERS,
   };
 }
 

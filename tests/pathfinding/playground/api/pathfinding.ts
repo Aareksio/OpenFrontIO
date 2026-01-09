@@ -2,11 +2,7 @@ import { TileRef } from "../../../../src/core/game/GameMap.js";
 import { GameMapHPAStar } from "../../../../src/core/pathfinding/experimental/GameMapHPAStar.js";
 import { PathFinder } from "../../../../src/core/pathfinding/PathFinder.js";
 import { getAdapter } from "../../utils.js";
-import { loadMap } from "./maps.js";
-
-// Available comparison adapters
-// Note: "hpa" runs same algorithm without debug overhead for fair timing comparison
-const COMPARISON_ADAPTERS = ["hpa", "a.baseline", "a.generic", "a.full"];
+import { COMPARISON_ADAPTERS, loadMap } from "./maps.js";
 
 // Primary result with debug info
 interface PrimaryResult {

@@ -9,11 +9,21 @@ const state = {
   hpaPath: null,
   hpaResult: null, // Store full HPA* result including timing
   comparisons: [], // Array of comparison results
+  visibleComparisons: new Set(), // Which comparison paths are visible
+  adapters: [], // Available comparison adapters (loaded from backend)
   graphDebug: null, // Static graph data (allNodes, edges, clusterSize) - loaded once per map
   debugInfo: null, // Per-path debug data (timings, nodePath, initialPath)
   isMapLoading: false, // Loading state for map switching
   isHpaLoading: false, // Separate loading state for HPA*
   activeRefreshButton: null, // Track which refresh button is spinning
+};
+
+// Colors for comparison paths
+const COMPARISON_COLORS = {
+  hpa: "#ff8800", // orange
+  "a.baseline": "#ff00ff", // magenta
+  "a.generic": "#88ff00", // lime
+  "a.full": "#ffff00", // yellow
 };
 
 // Canvas state
@@ -232,7 +242,8 @@ function schedulePathRecalc() {
     // Enough time has passed, request immediately
     lastPathRecalcTime = now;
     if (state.startPoint && state.endPoint) {
-      requestPathfinding(state.startPoint, state.endPoint);
+      // Skip comparisons during drag for snappy feel
+      requestPathfinding(state.startPoint, state.endPoint, true);
     }
   }
   // If not enough time has passed, skip this call (throttle)
@@ -637,6 +648,7 @@ async function switchMap(mapName, restorePointsFromURL = false) {
     state.mapHeight = data.height;
     state.mapData = data.mapData;
     state.graphDebug = data.graphDebug; // Store static graph debug data
+    state.adapters = data.adapters || []; // Store available comparison adapters
 
     // Clear paths (but don't update URL yet if we're restoring from URL)
     state.startPoint = null;
@@ -732,19 +744,25 @@ function hideWelcomeScreen() {
 }
 
 // Request pathfinding computation (HPA* primary + comparisons)
-async function requestPathfinding(from, to) {
+async function requestPathfinding(from, to, skipComparisons = false) {
   setStatus("Computing path...", true);
   state.isHpaLoading = true;
 
   try {
+    const body = {
+      map: state.currentMap,
+      from,
+      to,
+    };
+    // Skip comparisons during drag for snappy feel
+    if (skipComparisons) {
+      body.adapters = [];
+    }
+
     const response = await fetch("/api/pathfind", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        map: state.currentMap,
-        from,
-        to,
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -884,31 +902,80 @@ function updateTimingsPanel(result) {
   const comparisonsSection = document.getElementById("comparisonsSection");
   const comparisonsContainer = document.getElementById("comparisonsContainer");
 
-  if (result.comparisons && result.comparisons.length > 0) {
-    comparisonsSection.style.display = "block";
-
-    // Build comparison rows
-    let html = "";
-    for (const comp of result.comparisons) {
-      // Slowdown = comparison time / HPA time (>1 means comparison is slower)
-      const slowdown = hpaTime > 0 && comp.time > 0 ? comp.time / hpaTime : 0;
-      const speedupColor = slowdown <= 1 ? "#ff6666" : "#00ff88";
-      const speedupText = slowdown > 0 ? `${slowdown.toFixed(1)}x` : "—";
-
-      html += `
-        <div class="comparison-row">
-          <span class="comp-name">${comp.adapter}</span>
-          <span class="comp-tiles">${comp.length}</span>
-          <span class="comp-time">${comp.time.toFixed(2)}ms</span>
-          <span class="comp-speedup" style="color: ${speedupColor}">${speedupText}</span>
-        </div>
-      `;
-    }
-    comparisonsContainer.innerHTML = html;
-  } else {
+  // Only show comparisons section if we have adapters loaded
+  if (!state.adapters || state.adapters.length === 0) {
     comparisonsSection.style.display = "none";
-    comparisonsContainer.innerHTML = "";
+    return;
   }
+  comparisonsSection.style.display = "block";
+
+  // Build lookup map for comparison data
+  const compMap = {};
+  if (result.comparisons) {
+    for (const comp of result.comparisons) {
+      compMap[comp.adapter] = comp;
+    }
+  }
+
+  // Find fastest time overall (including HPA*) when we have data
+  const compTimes = result.comparisons
+    ? result.comparisons.map((c) => c.time).filter((t) => t > 0)
+    : [];
+  const fastestCompTime =
+    compTimes.length > 0 ? Math.min(...compTimes) : Infinity;
+
+  // Update HPA* time color - green if fastest, red if slower than any comparison
+  const hpaIsFastest = hpaTime > 0 && hpaTime <= fastestCompTime;
+  const hpaSlower = hpaTime > 0 && fastestCompTime < hpaTime;
+  const fastestTime = Math.min(hpaTime || Infinity, fastestCompTime);
+
+  if (hpaIsFastest) {
+    hpaTimeEl.style.color = "#00ff88";
+  } else if (hpaSlower) {
+    hpaTimeEl.style.color = "#ff6666";
+  } else {
+    hpaTimeEl.style.color = "#f5f5f5";
+  }
+
+  // Build comparison rows for all known adapters
+  let html = "";
+  for (const adapter of state.adapters) {
+    const comp = compMap[adapter];
+    const pathColor = COMPARISON_COLORS[adapter] || "#ffffff";
+    const isActive = state.visibleComparisons.has(adapter);
+
+    // Show actual values or placeholders
+    const hasData = comp && comp.time > 0;
+    const isFastest = hasData && comp.time === fastestTime;
+    const timeColor = isFastest ? "#00ff88" : hasData ? "#f5f5f5" : "#666";
+    const tilesText = hasData ? comp.length : "—";
+    const timeText = hasData ? `${comp.time.toFixed(2)}ms` : "—";
+
+    html += `
+      <div class="comparison-row${isActive ? " active" : ""}" data-adapter="${adapter}">
+        <span class="comp-color" style="background: ${pathColor}"></span>
+        <span class="comp-name">${adapter}</span>
+        <span class="comp-tiles" style="color: ${hasData ? "#888" : "#666"}">${tilesText}</span>
+        <span class="comp-time" style="color: ${timeColor}">${timeText}</span>
+      </div>
+    `;
+  }
+  comparisonsContainer.innerHTML = html;
+
+  // Add click handlers to toggle path visibility
+  comparisonsContainer.querySelectorAll(".comparison-row").forEach((row) => {
+    row.addEventListener("click", () => {
+      const adapter = row.dataset.adapter;
+      if (state.visibleComparisons.has(adapter)) {
+        state.visibleComparisons.delete(adapter);
+        row.classList.remove("active");
+      } else {
+        state.visibleComparisons.add(adapter);
+        row.classList.add("active");
+      }
+      renderInteractive();
+    });
+  });
 }
 
 // Reset path info to show dashes
@@ -1214,6 +1281,33 @@ function renderInteractive() {
       }
     }
     interactiveCtx.stroke();
+  }
+
+  // Draw comparison paths (before HPA* so primary is on top)
+  if (state.comparisons && state.visibleComparisons.size > 0) {
+    interactiveCtx.lineCap = "round";
+    interactiveCtx.lineJoin = "round";
+
+    for (const comp of state.comparisons) {
+      if (!state.visibleComparisons.has(comp.adapter)) continue;
+      if (!comp.path || comp.path.length === 0) continue;
+
+      const color = COMPARISON_COLORS[comp.adapter] || "#ffffff";
+      interactiveCtx.strokeStyle = color;
+      interactiveCtx.lineWidth = Math.max(1, zoomLevel);
+      interactiveCtx.beginPath();
+
+      for (let i = 0; i < comp.path.length; i++) {
+        const [x, y] = comp.path[i];
+        const screen = mapToScreen(x + 0.5, y + 0.5);
+        if (i === 0) {
+          interactiveCtx.moveTo(screen.x, screen.y);
+        } else {
+          interactiveCtx.lineTo(screen.x, screen.y);
+        }
+      }
+      interactiveCtx.stroke();
+    }
   }
 
   // Draw HPA* path
