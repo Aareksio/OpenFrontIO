@@ -1,5 +1,5 @@
 import { TileRef } from "../../../../src/core/game/GameMap.js";
-import { GameMapHPAStar } from "../../../../src/core/pathfinding/experimental/GameMapHPAStar.js";
+import { GameMapHPAStar } from "../../../../src/core/pathfinding/algorithms/hpa/AStarHPA.js";
 import { PathFinder } from "../../../../src/core/pathfinding/PathFinder.js";
 import { getAdapter } from "../../utils.js";
 import { COMPARISON_ADAPTERS, loadMap } from "./maps.js";

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { Game } from "../../../../src/core/game/Game.js";
-import { GameMapHPAStar } from "../../../../src/core/pathfinding/experimental/GameMapHPAStar.js";
+import { GameMapHPAStar } from "../../../../src/core/pathfinding/algorithms/hpa/AStarHPA.js";
 import { setupFromPath } from "../../utils.js";
 
 // Available comparison adapters

@@ -17,15 +17,15 @@ import {
   MapManifest,
 } from "../../src/core/game/TerrainMapLoader";
 import { UserSettings } from "../../src/core/game/UserSettings";
+import { GenericAStar } from "../../src/core/pathfinding/algorithms/AStar";
+import { MiniAStar } from "../../src/core/pathfinding/algorithms/AStarMini";
 import {
-  GenericAStar,
+  GameMapAStar,
   WaterGridAdapter,
-} from "../../src/core/pathfinding/experimental/AStar";
-import { GameMapAStar } from "../../src/core/pathfinding/experimental/GameMapAStar";
-import { GameMapHPAStar } from "../../src/core/pathfinding/experimental/GameMapHPAStar";
-import { MiniAStar } from "../../src/core/pathfinding/experimental/MiniAStar";
-import { TilePathFinder } from "../../src/core/pathfinding/experimental/TilePathFinder";
+} from "../../src/core/pathfinding/algorithms/AStarWaterAdapter";
+import { GameMapHPAStar } from "../../src/core/pathfinding/algorithms/hpa/AStarHPA";
 import { PathFinder, PathFinding } from "../../src/core/pathfinding/PathFinder";
+import { TilePathFinder } from "../../src/core/pathfinding/TilePathFinder";
 import { GameConfig } from "../../src/core/Schemas";
 import { TestConfig } from "../util/TestConfig";
 

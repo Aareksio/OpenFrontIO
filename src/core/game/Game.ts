@@ -1,5 +1,5 @@
 import { Config } from "../configuration/Config";
-import { AStar } from "../pathfinding/experimental/AStar";
+import { AStar } from "../pathfinding/algorithms/AStar";
 import { AllPlayersStats, ClientID } from "../Schemas";
 import { getClanTag } from "../Util";
 import { GameMap, TileRef } from "./GameMap";

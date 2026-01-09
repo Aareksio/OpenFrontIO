@@ -1,15 +1,15 @@
 // GameMap HPA* - Hierarchical Pathfinding A* for GameMap
 
-import { Game } from "../../game/Game";
-import { TileRef } from "../../game/GameMap";
+import { Game } from "../../../game/Game";
+import { TileRef } from "../../../game/GameMap";
+import { AStar } from "../AStar";
+import { BoundedAStar } from "../AStarBounded";
 import {
   AbstractGraph,
   AbstractGraphBuilder,
   AbstractNode,
 } from "./AbstractGraph";
-import { AbstractGraphAStar } from "./AbstractGraphAStar";
-import { AStar } from "./AStar";
-import { BoundedAStar } from "./BoundedAStar";
+import { AbstractGraphAStar } from "./AStarAbstractGraph";
 import { TileBFS } from "./TileBFS";
 
 type PathDebugInfo = {

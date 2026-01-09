@@ -1,8 +1,8 @@
 // Abstract Graph for HPA* - Hierarchical Pathfinding A*
 
-import { GameMap, TileRef } from "../../game/GameMap";
-import { GameMapWaterComponents } from "./GameMapWaterComponents";
+import { GameMap, TileRef } from "../../../game/GameMap";
 import { TileBFS } from "./TileBFS";
+import { GameMapWaterComponents } from "./WaterComponents";
 
 export interface AbstractNode {
   id: number;

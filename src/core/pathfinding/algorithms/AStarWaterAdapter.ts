@@ -1,7 +1,7 @@
-// Fully inlined A* for water pathfinding - optimized for performance
+// Water A* implementations - inlined for performance + generic adapter
 
 import { GameMap, TileRef } from "../../game/GameMap";
-import { AStar } from "./AStar";
+import { AStar, GenericAStarAdapter } from "./AStar";
 import { BucketQueue, PriorityQueue } from "./PriorityQueue";
 
 const LAND_BIT = 7; // Bit 7 in terrain indicates land
@@ -201,5 +201,71 @@ export class GameMapAStar implements AStar {
 
     path.reverse();
     return path;
+  }
+}
+
+// Generic adapter for use with GenericAStar
+export class WaterGridAdapter implements GenericAStarAdapter {
+  private readonly gameMap: GameMap;
+  private readonly height: number;
+  private readonly width: number;
+  private readonly _numNodes: number;
+
+  constructor(
+    gameMap: GameMap,
+    private readonly heuristicWeight: number = 15,
+  ) {
+    this.gameMap = gameMap;
+    this.width = gameMap.width();
+    this.height = gameMap.height();
+    this._numNodes = this.width * this.height;
+  }
+
+  numNodes(): number {
+    return this._numNodes;
+  }
+
+  maxNeighbors(): number {
+    return 4;
+  }
+
+  maxPriority(): number {
+    return this.heuristicWeight * (this.width + this.height);
+  }
+
+  neighbors(node: number, buffer: Int32Array): number {
+    let count = 0;
+    const x = node % this.width;
+
+    if (node >= this.width) {
+      const n = node - this.width;
+      if (this.gameMap.isWater(n)) buffer[count++] = n;
+    }
+    if (node < this._numNodes - this.width) {
+      const n = node + this.width;
+      if (this.gameMap.isWater(n)) buffer[count++] = n;
+    }
+    if (x !== 0) {
+      const n = node - 1;
+      if (this.gameMap.isWater(n)) buffer[count++] = n;
+    }
+    if (x !== this.width - 1) {
+      const n = node + 1;
+      if (this.gameMap.isWater(n)) buffer[count++] = n;
+    }
+
+    return count;
+  }
+
+  cost(_from: number, _to: number, _prev?: number): number {
+    return 1;
+  }
+
+  heuristic(node: number, goal: number): number {
+    const nx = node % this.width;
+    const ny = (node / this.width) | 0;
+    const gx = goal % this.width;
+    const gy = (goal / this.width) | 0;
+    return this.heuristicWeight * (Math.abs(nx - gx) + Math.abs(ny - gy));
   }
 }

@@ -1,7 +1,7 @@
 // Water component identification using flood-fill
 // Copied from navmesh/WaterComponents.ts with standard HPA* terminology
 
-import { GameMap, TileRef } from "../../game/GameMap";
+import { GameMap, TileRef } from "../../../game/GameMap";
 
 const LAND_MARKER = 0xff; // Must fit in Uint8Array
 

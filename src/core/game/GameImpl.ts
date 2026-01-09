@@ -1,7 +1,7 @@
 import { renderNumber } from "../../client/Utils";
 import { Config } from "../configuration/Config";
-import { AStar } from "../pathfinding/experimental/AStar";
-import { GameMapHPAStar } from "../pathfinding/experimental/GameMapHPAStar";
+import { AStar } from "../pathfinding/algorithms/AStar";
+import { GameMapHPAStar } from "../pathfinding/algorithms/hpa/AStarHPA";
 import { AllPlayersStats, ClientID, Winner } from "../Schemas";
 import { simpleHash } from "../Util";
 import { AllianceImpl } from "./AllianceImpl";

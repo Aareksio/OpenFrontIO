@@ -1,7 +1,7 @@
-import { Game } from "../../game/Game";
-import { TileRef } from "../../game/GameMap";
-import { PathFinder, PathResult, PathStatus } from "../PathFinder";
-import { AStar } from "./AStar";
+import { Game } from "../game/Game";
+import { TileRef } from "../game/GameMap";
+import { PathFinder, PathResult, PathStatus } from "./PathFinder";
+import { AStar } from "./algorithms/AStar";
 
 export class TilePathFinder implements PathFinder<TileRef> {
   private pathIndex = 0;

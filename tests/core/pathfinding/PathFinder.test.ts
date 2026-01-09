@@ -1,14 +1,14 @@
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { Game } from "../../../src/core/game/Game";
 import { TileRef } from "../../../src/core/game/GameMap";
-import { GameMapAStar } from "../../../src/core/pathfinding/experimental/GameMapAStar";
-import { GameMapHPAStar } from "../../../src/core/pathfinding/experimental/GameMapHPAStar";
-import { MiniAStar } from "../../../src/core/pathfinding/experimental/MiniAStar";
-import { TilePathFinder } from "../../../src/core/pathfinding/experimental/TilePathFinder";
+import { MiniAStar } from "../../../src/core/pathfinding/algorithms/AStarMini";
+import { GameMapAStar } from "../../../src/core/pathfinding/algorithms/AStarWaterAdapter";
+import { GameMapHPAStar } from "../../../src/core/pathfinding/algorithms/hpa/AStarHPA";
 import {
   PathFinder,
   PathStatus,
 } from "../../../src/core/pathfinding/PathFinder";
+import { TilePathFinder } from "../../../src/core/pathfinding/TilePathFinder";
 import { setup } from "../../util/Setup";
 import { gameFromString } from "./utils";
 

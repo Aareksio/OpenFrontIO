@@ -5,14 +5,12 @@ import { TrainStation } from "../game/TrainStation";
 import { PseudoRandom } from "../PseudoRandom";
 import { within } from "../Util";
 import { DistanceBasedBezierCurve } from "../utilities/Line";
-import {
-  GenericAStar,
-  RailAdapter,
-  StationGraphAdapter,
-} from "./experimental/AStar";
-import { GameMapAStar } from "./experimental/GameMapAStar";
-import { MiniAStar } from "./experimental/MiniAStar";
-import { TilePathFinder } from "./experimental/TilePathFinder";
+import { GenericAStar } from "./algorithms/AStar";
+import { MiniAStar } from "./algorithms/AStarMini";
+import { RailAdapter } from "./algorithms/AStarRailAdapter";
+import { StationGraphAdapter } from "./algorithms/AStarStationAdapter";
+import { GameMapAStar } from "./algorithms/AStarWaterAdapter";
+import { TilePathFinder } from "./TilePathFinder";
 
 export enum PathStatus {
   NEXT,
