@@ -1,5 +1,5 @@
 import { Config } from "../configuration/Config";
-import { NavMesh } from "../pathfinding/navmesh/NavMesh";
+import { AStar } from "../pathfinding/experimental/AStar";
 import { AllPlayersStats, ClientID } from "../Schemas";
 import { getClanTag } from "../Util";
 import { GameMap, TileRef } from "./GameMap";
@@ -782,7 +782,7 @@ export interface Game extends GameMap {
   addUpdate(update: GameUpdate): void;
   railNetwork(): RailNetwork;
   conquerPlayer(conqueror: Player, conquered: Player): void;
-  navMesh(): NavMesh | null;
+  gameMapHPAStar(): AStar | null;
 }
 
 export interface PlayerActions {

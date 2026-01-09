@@ -32,7 +32,11 @@ export class BoundedAStar implements AStar {
   private readonly heuristicWeight: number;
   private readonly maxIterations: number;
 
-  constructor(map: GameMap, maxSearchArea: number, config?: BoundedAStarConfig) {
+  constructor(
+    map: GameMap,
+    maxSearchArea: number,
+    config?: BoundedAStarConfig,
+  ) {
     this.terrain = (map as any).terrain as Uint8Array;
     this.mapWidth = map.width();
     this.heuristicWeight = config?.heuristicWeight ?? 1;
@@ -64,11 +68,12 @@ export class BoundedAStar implements AStar {
     const minY = Math.min(startY, goalY);
     const maxY = Math.max(startY, goalY);
 
-    return this.searchBounded(
-      start as TileRef,
-      goal as TileRef,
-      { minX, maxX, minY, maxY },
-    );
+    return this.searchBounded(start as TileRef, goal as TileRef, {
+      minX,
+      maxX,
+      minY,
+      maxY,
+    });
   }
 
   searchBounded(
@@ -153,7 +158,8 @@ export class BoundedAStar implements AStar {
 
     const startX = start % mapWidth;
     const startY = (start / mapWidth) | 0;
-    const startH = weight * (Math.abs(startX - goalX) + Math.abs(startY - goalY));
+    const startH =
+      weight * (Math.abs(startX - goalX) + Math.abs(startY - goalY));
     queue.push(startLocal, startH);
 
     let iterations = this.maxIterations;
@@ -197,7 +203,8 @@ export class BoundedAStar implements AStar {
             gScoreStamp[neighborLocal] = stamp;
             const f =
               tentativeG +
-              weight * (Math.abs(currentX - goalX) + Math.abs(currentY - 1 - goalY));
+              weight *
+                (Math.abs(currentX - goalX) + Math.abs(currentY - 1 - goalY));
             queue.push(neighborLocal, f);
           }
         }
@@ -220,7 +227,8 @@ export class BoundedAStar implements AStar {
             gScoreStamp[neighborLocal] = stamp;
             const f =
               tentativeG +
-              weight * (Math.abs(currentX - goalX) + Math.abs(currentY + 1 - goalY));
+              weight *
+                (Math.abs(currentX - goalX) + Math.abs(currentY + 1 - goalY));
             queue.push(neighborLocal, f);
           }
         }
@@ -243,7 +251,8 @@ export class BoundedAStar implements AStar {
             gScoreStamp[neighborLocal] = stamp;
             const f =
               tentativeG +
-              weight * (Math.abs(currentX - 1 - goalX) + Math.abs(currentY - goalY));
+              weight *
+                (Math.abs(currentX - 1 - goalX) + Math.abs(currentY - goalY));
             queue.push(neighborLocal, f);
           }
         }
@@ -266,7 +275,8 @@ export class BoundedAStar implements AStar {
             gScoreStamp[neighborLocal] = stamp;
             const f =
               tentativeG +
-              weight * (Math.abs(currentX + 1 - goalX) + Math.abs(currentY - goalY));
+              weight *
+                (Math.abs(currentX + 1 - goalX) + Math.abs(currentY - goalY));
             queue.push(neighborLocal, f);
           }
         }

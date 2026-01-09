@@ -23,9 +23,8 @@ import {
 } from "../../src/core/pathfinding/experimental/AStar";
 import { AStarPathFinder } from "../../src/core/pathfinding/experimental/AStarPathFinder";
 import { GameMapAStar } from "../../src/core/pathfinding/experimental/GameMapAStar";
-import { MiniAStar } from "../../src/core/pathfinding/experimental/MiniAStar";
 import { GameMapHPAStar } from "../../src/core/pathfinding/experimental/GameMapHPAStar";
-import { NavMesh } from "../../src/core/pathfinding/navmesh/NavMesh";
+import { MiniAStar } from "../../src/core/pathfinding/experimental/MiniAStar";
 import { PathFinder, PathFinders } from "../../src/core/pathfinding/PathFinder";
 import { GameConfig } from "../../src/core/Schemas";
 import { TestConfig } from "../util/TestConfig";
@@ -53,12 +52,6 @@ export type BenchmarkSummary = {
 
 export function getAdapter(game: Game, name: string): PathFinder {
   switch (name) {
-    case "legacy":
-    case "a.legacy":
-      return PathFinders.WaterLegacy(game, {
-        iterations: 500_000,
-        maxTries: 50,
-      });
     case "a.baseline": {
       return new AStarPathFinder(
         game,
@@ -75,33 +68,20 @@ export function getAdapter(game: Game, name: string): PathFinder {
       );
     }
     case "a.full": {
-      return new AStarPathFinder(
-        game,
-        new GameMapAStar(game.map()),
-      );
+      return new AStarPathFinder(game, new GameMapAStar(game.map()));
     }
     case "hpa": {
-      // Recreate NavMesh without cache, this approach was chosen
+      // Recreate GameMapHPAStar without cache, this approach was chosen
       // over adding cache toggles to the existing game instance
       // to avoid adding side effect from benchmark to the game
-      const navMesh = new NavMesh(game, { cachePaths: false });
-      navMesh.initialize();
-      (game as any)._navMesh = navMesh;
+      const hpa = new GameMapHPAStar(game, { cachePaths: false });
+      hpa.initialize();
+      (game as any)._gameMapHPAStar = hpa;
 
       return PathFinders.Water(game);
     }
     case "hpa.cached":
       return PathFinders.Water(game);
-    case "hpa.optimized": {
-      const hpa = new GameMapHPAStar(game, { cachePaths: false });
-      hpa.initialize();
-      return new AStarPathFinder(game, hpa);
-    }
-    case "hpa.optimized.cached": {
-      const hpa = new GameMapHPAStar(game, { cachePaths: true });
-      hpa.initialize();
-      return new AStarPathFinder(game, hpa);
-    }
     default:
       throw new Error(`Unknown pathfinding adapter: ${name}`);
   }

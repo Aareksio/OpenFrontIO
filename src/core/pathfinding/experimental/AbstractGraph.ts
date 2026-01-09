@@ -13,7 +13,7 @@ export interface AbstractNode {
 }
 
 export interface AbstractEdge {
-  id: number
+  id: number;
   nodeA: number; // Lower node ID (canonical order: nodeA < nodeB)
   nodeB: number; // Higher node ID
   cost: number;
@@ -430,12 +430,9 @@ export class AbstractGraphBuilder {
 
     for (let y = baseY; y < maxY; y++) {
       const tile = this.map.ref(x, y);
-      const nextTile =
-        x + 1 < this.map.width() ? this.map.ref(x + 1, y) : -1;
+      const nextTile = x + 1 < this.map.width() ? this.map.ref(x + 1, y) : -1;
       const isEntrance =
-        this.map.isWater(tile) &&
-        nextTile !== -1 &&
-        this.map.isWater(nextTile);
+        this.map.isWater(tile) && nextTile !== -1 && this.map.isWater(nextTile);
 
       if (isEntrance) {
         if (spanStart === -1) {
@@ -469,12 +466,9 @@ export class AbstractGraphBuilder {
 
     for (let x = baseX; x < maxX; x++) {
       const tile = this.map.ref(x, y);
-      const nextTile =
-        y + 1 < this.map.height() ? this.map.ref(x, y + 1) : -1;
+      const nextTile = y + 1 < this.map.height() ? this.map.ref(x, y + 1) : -1;
       const isEntrance =
-        this.map.isWater(tile) &&
-        nextTile !== -1 &&
-        this.map.isWater(nextTile);
+        this.map.isWater(tile) && nextTile !== -1 && this.map.isWater(nextTile);
 
       if (isEntrance) {
         if (spanStart === -1) {
@@ -553,7 +547,8 @@ export class AbstractGraphBuilder {
     clusterY: number,
   ): void {
     // Canonical order: lower ID first
-    const [lo, hi] = nodeIdA < nodeIdB ? [nodeIdA, nodeIdB] : [nodeIdB, nodeIdA];
+    const [lo, hi] =
+      nodeIdA < nodeIdB ? [nodeIdA, nodeIdB] : [nodeIdB, nodeIdA];
 
     // Check for existing edge
     let nodeMap = this.edgeBetween.get(lo);
@@ -626,7 +621,10 @@ export class AbstractGraphBuilder {
 
         // Reject if outside of bounding box (except start/target)
         const isStartOrTarget = tile === from || tileToNodeId.has(tile);
-        if (!isStartOrTarget && (x < minX || x > maxX || y < minY || y > maxY)) {
+        if (
+          !isStartOrTarget &&
+          (x < minX || x > maxX || y < minY || y > maxY)
+        ) {
           return null;
         }
 

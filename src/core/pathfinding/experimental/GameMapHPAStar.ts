@@ -72,7 +72,10 @@ export class GameMapHPAStar implements AStar {
     // BoundedAStar for multi-cluster (3x3) local pathfinding
     const multiClusterSize = clusterSize * 3;
     const maxMultiClusterNodes = multiClusterSize * multiClusterSize;
-    this.localAStarMultiCluster = new BoundedAStar(miniMap, maxMultiClusterNodes);
+    this.localAStarMultiCluster = new BoundedAStar(
+      miniMap,
+      maxMultiClusterNodes,
+    );
 
     this.initialized = true;
   }
@@ -246,7 +249,8 @@ export class GameMapHPAStar implements AStar {
     );
 
     if (debug) {
-      this.debugInfo!.timings.findAbstractPath = findAbstractPathMeasure.duration;
+      this.debugInfo!.timings.findAbstractPath =
+        findAbstractPathMeasure.duration;
       this.debugInfo!.timings.total += findAbstractPathMeasure.duration;
 
       this.debugInfo!.nodePath = nodePath
@@ -384,7 +388,8 @@ export class GameMapHPAStar implements AStar {
     );
 
     if (debug) {
-      this.debugInfo!.timings.buildInitialPath = buildInitialPathMeasure.duration;
+      this.debugInfo!.timings.buildInitialPath =
+        buildInitialPathMeasure.duration;
       this.debugInfo!.timings.total += buildInitialPathMeasure.duration;
       this.debugInfo!.initialPath = initialPath;
       console.log(`[DEBUG] Initial path: ${initialPath.length} tiles`);

@@ -1,7 +1,8 @@
 import { Game } from "../game/Game";
 import { TileRef } from "../game/GameMap";
-import { MiniAStarAdapter } from "./adapters/MiniAStarAdapter";
-import { NavMeshAdapter } from "./adapters/NavMeshAdapter";
+import { AStarPathFinder } from "./experimental/AStarPathFinder";
+import { GameMapAStar } from "./experimental/GameMapAStar";
+import { MiniAStar } from "./experimental/MiniAStar";
 
 export enum PathStatus {
   NEXT,
@@ -21,23 +22,21 @@ export interface PathFinder {
   findPath(from: TileRef, to: TileRef): TileRef[] | null;
 }
 
-export interface MiniAStarOptions {
-  waterPath?: boolean;
-  iterations?: number;
-  maxTries?: number;
-}
-
 export class PathFinders {
   static Water(game: Game): PathFinder {
-    if (!game.navMesh()) {
-      // Fall back to old water pathfinder if navmesh is not available
-      return PathFinders.WaterLegacy(game);
+    const hpa = game.gameMapHPAStar();
+    if (!hpa) {
+      // Fall back to baseline A* if HPA* is not available
+      return PathFinders.WaterBaseline(game);
     }
 
-    return new NavMeshAdapter(game);
+    return new AStarPathFinder(game, hpa);
   }
 
-  static WaterLegacy(game: Game, options?: MiniAStarOptions): PathFinder {
-    return new MiniAStarAdapter(game, options);
+  static WaterBaseline(game: Game): PathFinder {
+    return new AStarPathFinder(
+      game,
+      new MiniAStar(game, (map) => new GameMapAStar(map)),
+    );
   }
 }

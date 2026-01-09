@@ -112,10 +112,7 @@ export class AbstractGraphAStar {
 
         const tentativeG = currentG + edge.cost;
 
-        if (
-          gScoreStamp[neighbor] !== stamp ||
-          tentativeG < gScore[neighbor]
-        ) {
+        if (gScoreStamp[neighbor] !== stamp || tentativeG < gScore[neighbor]) {
           cameFrom[neighbor] = current;
           gScore[neighbor] = tentativeG;
           gScoreStamp[neighbor] = stamp;

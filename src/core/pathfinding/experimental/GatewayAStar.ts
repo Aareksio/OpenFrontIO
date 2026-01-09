@@ -81,7 +81,8 @@ export class GatewayAStar {
     gScoreStamp[startId] = stamp;
     cameFrom[startId] = -1;
 
-    const startH = weight * (Math.abs(startGw.x - goalX) + Math.abs(startGw.y - goalY));
+    const startH =
+      weight * (Math.abs(startGw.x - goalX) + Math.abs(startGw.y - goalY));
     queue.push(startId, startH);
 
     let iterations = this.maxIterations;
@@ -112,10 +113,7 @@ export class GatewayAStar {
 
         const tentativeG = currentG + edge.cost;
 
-        if (
-          gScoreStamp[neighbor] !== stamp ||
-          tentativeG < gScore[neighbor]
-        ) {
+        if (gScoreStamp[neighbor] !== stamp || tentativeG < gScore[neighbor]) {
           cameFrom[neighbor] = current;
           gScore[neighbor] = tentativeG;
           gScoreStamp[neighbor] = stamp;
@@ -123,7 +121,9 @@ export class GatewayAStar {
           // Inline heuristic calculation
           const neighborGw = graph.getGateway(neighbor);
           if (neighborGw) {
-            const h = weight * (Math.abs(neighborGw.x - goalX) + Math.abs(neighborGw.y - goalY));
+            const h =
+              weight *
+              (Math.abs(neighborGw.x - goalX) + Math.abs(neighborGw.y - goalY));
             queue.push(neighbor, tentativeG + h);
           }
         }
