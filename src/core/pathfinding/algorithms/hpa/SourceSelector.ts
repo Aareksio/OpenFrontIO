@@ -1,13 +1,13 @@
 // Source Selector for HPA* multi-source search
 // Selects best source from candidates using abstract graph BFS
 
-import { Game } from "../../../game/Game";
-import { TileRef } from "../../../game/GameMap";
+import { GameMap, TileRef } from "../../../game/GameMap";
 import { AbstractGraph, AbstractNode } from "./AbstractGraph";
+import { LAND_MARKER } from "./WaterComponents";
 
 export class SourceSelector {
   constructor(
-    private game: Game,
+    private map: GameMap,
     private graph: AbstractGraph,
   ) {}
 
@@ -57,33 +57,33 @@ export class SourceSelector {
   }
 
   /**
+   * Check if a tile is water using component ID (faster than isWater bit ops)
+   */
+  private isWaterTile(tile: TileRef): boolean {
+    return this.graph.getComponentId(tile) !== LAND_MARKER;
+  }
+
+  /**
    * Resolve land/shore tile to adjacent water tile.
    * If already water, validates component if specified.
+   * Works directly on map coordinates (no full↔mini conversion).
    */
   private resolveToWater(
     tile: TileRef,
     targetComponent?: number,
   ): TileRef | null {
-    const map = this.game.map();
-    const miniMap = this.game.miniMap();
-
-    // Convert to minimap coordinates
-    const miniX = Math.floor(map.x(tile) / 2);
-    const miniY = Math.floor(map.y(tile) / 2);
-    const miniTile = miniMap.ref(miniX, miniY);
-
     // If already water, validate component
-    if (miniMap.isWater(miniTile)) {
+    if (this.isWaterTile(tile)) {
       if (targetComponent !== undefined) {
-        const component = this.graph.getComponentId(miniTile);
-        return component === targetComponent ? miniTile : null;
+        const component = this.graph.getComponentId(tile);
+        return component === targetComponent ? tile : null;
       }
-      return miniTile;
+      return tile;
     }
 
     // Shore tile: find adjacent water tile matching component
-    for (const neighbor of miniMap.neighbors(miniTile)) {
-      if (miniMap.isWater(neighbor)) {
+    for (const neighbor of this.map.neighbors(tile)) {
+      if (this.isWaterTile(neighbor)) {
         if (targetComponent === undefined) {
           return neighbor;
         }
@@ -98,16 +98,15 @@ export class SourceSelector {
   }
 
   /**
-   * Get cluster node for a minimap water tile.
+   * Get cluster node for a map water tile.
    * O(1) cluster lookup + O(nodes_in_cluster) component match.
    */
   private getClusterNodeForTile(
-    miniTile: TileRef,
+    tile: TileRef,
     filterComponent?: number,
   ): AbstractNode | null {
-    const miniMap = this.game.miniMap();
-    const x = miniMap.x(miniTile);
-    const y = miniMap.y(miniTile);
+    const x = this.map.x(tile);
+    const y = this.map.y(tile);
     const clusterX = Math.floor(x / this.graph.clusterSize);
     const clusterY = Math.floor(y / this.graph.clusterSize);
 

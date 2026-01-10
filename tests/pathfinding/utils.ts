@@ -74,8 +74,14 @@ export function getAdapter(game: Game, name: string): PathFinder<TileRef> {
       // Recreate GameMapHPAStar without cache, this approach was chosen
       // over adding cache toggles to the existing game instance
       // to avoid adding side effect from benchmark to the game
-      const hpa = new GameMapHPAStar(game, { cachePaths: false });
-      (game as any)._waterPathfinder = hpa;
+      const graph = game.miniWaterGraph();
+      if (!graph) {
+        throw new Error("miniWaterGraph not available");
+      }
+      const hpa = new GameMapHPAStar(game.miniMap(), graph, {
+        cachePaths: false,
+      });
+      (game as any)._miniWaterHPA = hpa;
 
       return PathFinding.Water(game);
     }

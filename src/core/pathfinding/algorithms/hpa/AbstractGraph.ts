@@ -103,16 +103,38 @@ export class AbstractGraph {
     return this._edges.length;
   }
 
-  getCachedPath(edgeId: number): TileRef[] | null {
-    return this._pathCache[edgeId] ?? null;
+  /**
+   * Get cached path for edge in specific direction
+   * @param edgeId Edge ID
+   * @param fromNodeId The starting node of the traversal (determines direction)
+   */
+  getCachedPath(edgeId: number, fromNodeId: number): TileRef[] | null {
+    const edge = this._edges[edgeId];
+    if (!edge) return null;
+    // Direction: 0 if traversing A→B, 1 if traversing B→A
+    const direction = fromNodeId === edge.nodeA ? 0 : 1;
+    const cacheIndex = edgeId * 2 + direction;
+    return this._pathCache[cacheIndex] ?? null;
   }
 
-  setCachedPath(edgeId: number, path: TileRef[]): void {
-    this._pathCache[edgeId] = path;
+  /**
+   * Cache path for edge in specific direction
+   * @param edgeId Edge ID
+   * @param fromNodeId The starting node of the traversal (determines direction)
+   * @param path The path tiles
+   */
+  setCachedPath(edgeId: number, fromNodeId: number, path: TileRef[]): void {
+    const edge = this._edges[edgeId];
+    if (!edge) return;
+    // Direction: 0 if traversing A→B, 1 if traversing B→A
+    const direction = fromNodeId === edge.nodeA ? 0 : 1;
+    const cacheIndex = edgeId * 2 + direction;
+    this._pathCache[cacheIndex] = path;
   }
 
   _initPathCache(): void {
-    this._pathCache = new Array(this._edges.length).fill(null);
+    // Double the cache size to store both directions
+    this._pathCache = new Array(this._edges.length * 2).fill(null);
   }
 
   setWaterComponents(wc: GameMapWaterComponents): void {

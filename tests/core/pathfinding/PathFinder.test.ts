@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test, vi } from "vitest";
 import { Game } from "../../../src/core/game/Game";
 import { TileRef } from "../../../src/core/game/GameMap";
 import { MiniAStar } from "../../../src/core/pathfinding/algorithms/AStarMini";
+import { ShoreCoercingAStar } from "../../../src/core/pathfinding/algorithms/AStarShoreCoercing";
 import { GameMapAStar } from "../../../src/core/pathfinding/algorithms/AStarWaterAdapter";
 import {
   PathFinder,
@@ -28,7 +29,7 @@ const adapters: AdapterFactory[] = [
   {
     name: "TilePathFinder (HPA*)",
     create: (game) => {
-      const hpa = game.waterPathfinder();
+      const hpa = game.miniWaterHPA();
       if (!hpa) {
         // Fallback to baseline for small test maps without navmesh
         return new TilePathFinder(
@@ -36,7 +37,10 @@ const adapters: AdapterFactory[] = [
           new MiniAStar(game, (map) => new GameMapAStar(map)),
         );
       }
-      return new TilePathFinder(game, hpa);
+      return new TilePathFinder(
+        game,
+        new MiniAStar(game, (map) => new ShoreCoercingAStar(map, hpa)),
+      );
     },
   },
 ];

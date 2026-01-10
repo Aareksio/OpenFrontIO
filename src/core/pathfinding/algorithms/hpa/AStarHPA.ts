@@ -1,13 +1,13 @@
 // GameMap HPA* - Hierarchical Pathfinding A* for GameMap
 
-import { Game } from "../../../game/Game";
-import { TileRef } from "../../../game/GameMap";
+import { GameMap, TileRef } from "../../../game/GameMap";
 import { AStar } from "../AStar";
 import { BoundedAStar } from "../AStarBounded";
 import { AbstractGraph, AbstractNode } from "./AbstractGraph";
 import { AbstractGraphAStar } from "./AStarAbstractGraph";
 import { SourceSelector } from "./SourceSelector";
 import { TileBFS } from "./TileBFS";
+import { LAND_MARKER } from "./WaterComponents";
 
 type PathDebugInfo = {
   nodePath: TileRef[] | null;
@@ -29,7 +29,6 @@ type PathDebugInfo = {
 };
 
 export class GameMapHPAStar implements AStar {
-  private graph: AbstractGraph;
   private tileBFS: TileBFS;
   private abstractAStar: AbstractGraphAStar;
   private localAStar: BoundedAStar;
@@ -37,26 +36,17 @@ export class GameMapHPAStar implements AStar {
   private sourceSelector: SourceSelector;
 
   public debugInfo: PathDebugInfo | null = null;
+  public debugMode: boolean = false;
 
   constructor(
-    private game: Game,
+    private map: GameMap,
+    private graph: AbstractGraph,
     private options: {
       cachePaths?: boolean;
     } = {},
   ) {
-    // Extract pre-built graph from game
-    const graph = game.miniWaterGraph();
-    if (!graph) {
-      throw new Error(
-        "miniWaterGraph not available. Ensure NavMesh is enabled.",
-      );
-    }
-    this.graph = graph;
-
-    const miniMap = game.miniMap();
-
     // BFS for nearest node search
-    this.tileBFS = new TileBFS(miniMap.width() * miniMap.height());
+    this.tileBFS = new TileBFS(map.width() * map.height());
 
     const clusterSize = graph.clusterSize;
 
@@ -65,25 +55,22 @@ export class GameMapHPAStar implements AStar {
 
     // BoundedAStar for cluster-bounded local pathfinding
     const maxLocalNodes = clusterSize * clusterSize;
-    this.localAStar = new BoundedAStar(miniMap, maxLocalNodes);
+    this.localAStar = new BoundedAStar(map, maxLocalNodes);
 
     // BoundedAStar for multi-cluster (3x3) local pathfinding
     const multiClusterSize = clusterSize * 3;
     const maxMultiClusterNodes = multiClusterSize * multiClusterSize;
-    this.localAStarMultiCluster = new BoundedAStar(
-      miniMap,
-      maxMultiClusterNodes,
-    );
+    this.localAStarMultiCluster = new BoundedAStar(map, maxMultiClusterNodes);
 
     // SourceSelector for multi-source search
-    this.sourceSelector = new SourceSelector(this.game, this.graph);
+    this.sourceSelector = new SourceSelector(this.map, this.graph);
   }
 
   search(from: number | number[], to: number): number[] | null {
     if (Array.isArray(from)) {
       return this.searchMultiSource(from as TileRef[], to as TileRef);
     }
-    return this.findPath(from as TileRef, to as TileRef);
+    return this.findPath(from as TileRef, to as TileRef, this.debugMode);
   }
 
   private searchMultiSource(
@@ -145,16 +132,15 @@ export class GameMapHPAStar implements AStar {
       };
     }
 
-    const dist = this.game.manhattanDist(from, to);
+    const dist = this.map.manhattanDist(from, to);
 
     // Early exit for very short distances
     if (dist <= this.graph.clusterSize) {
       performance.mark("hpa:findPath:earlyExitLocalPath:start");
-      const map = this.game.map();
-      const startMiniX = Math.floor(map.x(from) / 2);
-      const startMiniY = Math.floor(map.y(from) / 2);
-      const clusterX = Math.floor(startMiniX / this.graph.clusterSize);
-      const clusterY = Math.floor(startMiniY / this.graph.clusterSize);
+      const startX = this.map.x(from);
+      const startY = this.map.y(from);
+      const clusterX = Math.floor(startX / this.graph.clusterSize);
+      const clusterY = Math.floor(startY / this.graph.clusterSize);
       const localPath = this.findLocalPath(from, to, clusterX, clusterY, true);
       performance.mark("hpa:findPath:earlyExitLocalPath:end");
       const measure = performance.measure(
@@ -202,7 +188,7 @@ export class GameMapHPAStar implements AStar {
     if (!startNode) {
       if (debug) {
         console.log(
-          `[DEBUG] Cannot find start node for (${this.game.x(from)}, ${this.game.y(from)})`,
+          `[DEBUG] Cannot find start node for (${this.map.x(from)}, ${this.map.y(from)})`,
         );
       }
       return null;
@@ -211,7 +197,7 @@ export class GameMapHPAStar implements AStar {
     if (!endNode) {
       if (debug) {
         console.log(
-          `[DEBUG] Cannot find end node for (${this.game.x(to)}, ${this.game.y(to)})`,
+          `[DEBUG] Cannot find end node for (${this.map.x(to)}, ${this.map.y(to)})`,
         );
       }
       return null;
@@ -281,22 +267,17 @@ export class GameMapHPAStar implements AStar {
     }
 
     const initialPath: TileRef[] = [];
-    const map = this.game.map();
-    const miniMap = this.game.miniMap();
 
     performance.mark("hpa:findPath:buildInitialPath:start");
 
     // 1. Find path from start to first node
     const firstNode = this.graph.getNode(nodePath[0])!;
-    const firstNodeTile = map.ref(
-      miniMap.x(firstNode.tile) * 2,
-      miniMap.y(firstNode.tile) * 2,
-    );
+    const firstNodeTile = firstNode.tile;
 
-    const startMiniX = Math.floor(map.x(from) / 2);
-    const startMiniY = Math.floor(map.y(from) / 2);
-    const startClusterX = Math.floor(startMiniX / this.graph.clusterSize);
-    const startClusterY = Math.floor(startMiniY / this.graph.clusterSize);
+    const startX = this.map.x(from);
+    const startY = this.map.y(from);
+    const startClusterX = Math.floor(startX / this.graph.clusterSize);
+    const startClusterY = Math.floor(startY / this.graph.clusterSize);
     const startSegment = this.findLocalPath(
       from,
       firstNodeTile,
@@ -320,26 +301,21 @@ export class GameMapHPAStar implements AStar {
         return null;
       }
 
+      const fromNode = this.graph.getNode(fromNodeId)!;
+      const toNode = this.graph.getNode(toNodeId)!;
+      const fromTile = fromNode.tile;
+      const toTile = toNode.tile;
+
       // Check path cache (stored on graph, shared across all instances)
+      // Cache is direction-aware: A→B and B→A are cached separately
       if (this.options.cachePaths) {
-        const cachedPath = this.graph.getCachedPath(edge.id);
-        if (cachedPath) {
-          // Path is direction-independent, just skip first tile (already in path)
+        const cachedPath = this.graph.getCachedPath(edge.id, fromNodeId);
+        if (cachedPath && cachedPath.length > 0) {
+          // Path is cached for this exact direction, use as-is
           initialPath.push(...cachedPath.slice(1));
           continue;
         }
       }
-
-      const fromNode = this.graph.getNode(fromNodeId)!;
-      const toNode = this.graph.getNode(toNodeId)!;
-      const fromTile = map.ref(
-        miniMap.x(fromNode.tile) * 2,
-        miniMap.y(fromNode.tile) * 2,
-      );
-      const toTile = map.ref(
-        miniMap.x(toNode.tile) * 2,
-        miniMap.y(toNode.tile) * 2,
-      );
 
       const segmentPath = this.findLocalPath(
         fromTile,
@@ -354,23 +330,20 @@ export class GameMapHPAStar implements AStar {
 
       initialPath.push(...segmentPath.slice(1));
 
-      // Cache the path on graph (shared across all instances)
+      // Cache the path for this direction
       if (this.options.cachePaths) {
-        this.graph.setCachedPath(edge.id, segmentPath);
+        this.graph.setCachedPath(edge.id, fromNodeId, segmentPath);
       }
     }
 
     // 3. Find path from last node to end
     const lastNode = this.graph.getNode(nodePath[nodePath.length - 1])!;
-    const lastNodeTile = map.ref(
-      miniMap.x(lastNode.tile) * 2,
-      miniMap.y(lastNode.tile) * 2,
-    );
+    const lastNodeTile = lastNode.tile;
 
-    const endMiniX = Math.floor(map.x(to) / 2);
-    const endMiniY = Math.floor(map.y(to) / 2);
-    const endClusterX = Math.floor(endMiniX / this.graph.clusterSize);
-    const endClusterY = Math.floor(endMiniY / this.graph.clusterSize);
+    const endX = this.map.x(to);
+    const endY = this.map.y(to);
+    const endClusterX = Math.floor(endX / this.graph.clusterSize);
+    const endClusterY = Math.floor(endY / this.graph.clusterSize);
     const endSegment = this.findLocalPath(
       lastNodeTile,
       to,
@@ -421,23 +394,17 @@ export class GameMapHPAStar implements AStar {
   }
 
   private findNearestNode(tile: TileRef): AbstractNode | null {
-    const map = this.game.map();
-    const x = map.x(tile);
-    const y = map.y(tile);
+    const x = this.map.x(tile);
+    const y = this.map.y(tile);
 
-    const miniMap = this.game.miniMap();
-    const miniX = Math.floor(x / 2);
-    const miniY = Math.floor(y / 2);
-    const miniFrom = miniMap.ref(miniX, miniY);
-
-    const clusterX = Math.floor(miniX / this.graph.clusterSize);
-    const clusterY = Math.floor(miniY / this.graph.clusterSize);
+    const clusterX = Math.floor(x / this.graph.clusterSize);
+    const clusterY = Math.floor(y / this.graph.clusterSize);
 
     const clusterSize = this.graph.clusterSize;
     const minX = clusterX * clusterSize;
     const minY = clusterY * clusterSize;
-    const maxX = Math.min(miniMap.width() - 1, minX + clusterSize - 1);
-    const maxY = Math.min(miniMap.height() - 1, minY + clusterSize - 1);
+    const maxX = Math.min(this.map.width() - 1, minX + clusterSize - 1);
+    const maxY = Math.min(this.map.height() - 1, minY + clusterSize - 1);
 
     const cluster = this.graph.getCluster(clusterX, clusterY);
     if (!cluster || cluster.nodeIds.length === 0) {
@@ -448,14 +415,14 @@ export class GameMapHPAStar implements AStar {
     const maxDistance = clusterSize * clusterSize;
 
     return this.tileBFS.search(
-      miniMap.width(),
-      miniMap.height(),
-      miniFrom,
+      this.map.width(),
+      this.map.height(),
+      tile,
       maxDistance,
-      (t: TileRef) => miniMap.isWater(t),
+      (t: TileRef) => this.graph.getComponentId(t) !== LAND_MARKER,
       (t: TileRef, _dist: number) => {
-        const tileX = miniMap.x(t);
-        const tileY = miniMap.y(t);
+        const tileX = this.map.x(t);
+        const tileY = this.map.y(t);
 
         for (const node of candidateNodes) {
           if (node.x === tileX && node.y === tileY) {
@@ -484,20 +451,6 @@ export class GameMapHPAStar implements AStar {
     clusterY: number,
     multiCluster: boolean = false,
   ): TileRef[] | null {
-    const map = this.game.map();
-    const miniMap = this.game.miniMap();
-
-    // Convert full map coordinates to miniMap coordinates
-    const miniFrom = miniMap.ref(
-      Math.floor(map.x(from) / 2),
-      Math.floor(map.y(from) / 2),
-    );
-
-    const miniTo = miniMap.ref(
-      Math.floor(map.x(to) / 2),
-      Math.floor(map.y(to) / 2),
-    );
-
     // Calculate cluster bounds
     const clusterSize = this.graph.clusterSize;
 
@@ -510,13 +463,13 @@ export class GameMapHPAStar implements AStar {
       // 3×3 clusters centered on the starting cluster
       minX = Math.max(0, (clusterX - 1) * clusterSize);
       minY = Math.max(0, (clusterY - 1) * clusterSize);
-      maxX = Math.min(miniMap.width() - 1, (clusterX + 2) * clusterSize - 1);
-      maxY = Math.min(miniMap.height() - 1, (clusterY + 2) * clusterSize - 1);
+      maxX = Math.min(this.map.width() - 1, (clusterX + 2) * clusterSize - 1);
+      maxY = Math.min(this.map.height() - 1, (clusterY + 2) * clusterSize - 1);
     } else {
       minX = clusterX * clusterSize;
       minY = clusterY * clusterSize;
-      maxX = Math.min(miniMap.width() - 1, minX + clusterSize - 1);
-      maxY = Math.min(miniMap.height() - 1, minY + clusterSize - 1);
+      maxX = Math.min(this.map.width() - 1, minX + clusterSize - 1);
+      maxY = Math.min(this.map.height() - 1, minY + clusterSize - 1);
     }
 
     // Choose the appropriate BoundedAStar based on search area
@@ -524,100 +477,42 @@ export class GameMapHPAStar implements AStar {
       ? this.localAStarMultiCluster
       : this.localAStar;
 
-    // Run BoundedAStar on bounded region
-    const path = selectedAStar.searchBounded(miniFrom, miniTo, {
+    // Run BoundedAStar on bounded region - works directly on map coords
+    const path = selectedAStar.searchBounded(from, to, {
       minX,
       maxX,
       minY,
       maxY,
     });
 
-    if (!path) {
+    if (!path || path.length === 0) {
       return null;
     }
 
-    // Upscale from miniMap to full map
-    const result = this.upscalePathToFullMap(path, from, to);
+    // Fix endpoints: BoundedAStar clamps tiles to bounds, but node tiles may be
+    // just outside cluster bounds. Ensure path starts/ends at exact requested tiles.
+    if (path[0] !== from) {
+      path.unshift(from);
+    }
+    if (path[path.length - 1] !== to) {
+      path.push(to);
+    }
 
-    return result;
+    return path;
   }
 
-  private upscalePathToFullMap(
-    miniPath: TileRef[],
-    from: TileRef,
-    to: TileRef,
-  ): TileRef[] {
-    const map = this.game.map();
-    const miniMap = this.game.miniMap();
-
-    const miniCells = miniPath.map((tile) => ({
-      x: miniMap.x(tile),
-      y: miniMap.y(tile),
-    }));
-
-    // Scale all points (2x)
-    const scaledPath = miniCells.map((point) => ({
-      x: point.x * 2,
-      y: point.y * 2,
-    }));
-
-    // Interpolate between scaled points
-    const smoothPath: Array<{ x: number; y: number }> = [];
-    for (let i = 0; i < scaledPath.length - 1; i++) {
-      const current = scaledPath[i];
-      const next = scaledPath[i + 1];
-
-      smoothPath.push(current);
-
-      const dx = next.x - current.x;
-      const dy = next.y - current.y;
-      const distance = Math.max(Math.abs(dx), Math.abs(dy));
-      const steps = distance;
-
-      for (let step = 1; step < steps; step++) {
-        smoothPath.push({
-          x: Math.round(current.x + (dx * step) / steps),
-          y: Math.round(current.y + (dy * step) / steps),
-        });
-      }
-    }
-
-    if (scaledPath.length > 0) {
-      smoothPath.push(scaledPath[scaledPath.length - 1]);
-    }
-
-    const scaledCells = smoothPath;
-
-    // Fix extremes to ensure exact start/end
-    const fromCell = { x: map.x(from), y: map.y(from) };
-    const toCell = { x: map.x(to), y: map.y(to) };
-
-    const startIdx = scaledCells.findIndex(
-      (c) => c.x === fromCell.x && c.y === fromCell.y,
-    );
-    if (startIdx === -1) {
-      scaledCells.unshift(fromCell);
-    } else if (startIdx !== 0) {
-      scaledCells.splice(0, startIdx);
-    }
-
-    const endIdx = scaledCells.findIndex(
-      (c) => c.x === toCell.x && c.y === toCell.y,
-    );
-    if (endIdx === -1) {
-      scaledCells.push(toCell);
-    } else if (endIdx !== scaledCells.length - 1) {
-      scaledCells.splice(endIdx + 1);
-    }
-
-    return scaledCells.map((cell) => map.ref(cell.x, cell.y));
+  /**
+   * Check if a tile is water using component ID (faster than isWater bit ops)
+   */
+  private isWaterTile(tile: TileRef): boolean {
+    return this.graph.getComponentId(tile) !== LAND_MARKER;
   }
 
   private tracePath(from: TileRef, to: TileRef): TileRef[] | null {
-    const x0 = this.game.x(from);
-    const y0 = this.game.y(from);
-    const x1 = this.game.x(to);
-    const y1 = this.game.y(to);
+    const x0 = this.map.x(from);
+    const y0 = this.map.y(from);
+    const x1 = this.map.x(to);
+    const y1 = this.map.y(to);
 
     const tiles: TileRef[] = [];
 
@@ -637,8 +532,8 @@ export class GameMapHPAStar implements AStar {
       if (iterations++ > maxTiles) {
         return null;
       }
-      const tile = this.game.ref(x, y);
-      if (!this.game.isWater(tile)) {
+      const tile = this.map.ref(x, y);
+      if (!this.isWaterTile(tile)) {
         return null;
       }
 
@@ -656,16 +551,16 @@ export class GameMapHPAStar implements AStar {
         x += sx;
         err -= dy;
 
-        const intermediateTile = this.game.ref(x, y);
-        if (!this.game.isWater(intermediateTile)) {
+        const intermediateTile = this.map.ref(x, y);
+        if (!this.isWaterTile(intermediateTile)) {
           x -= sx;
           err += dy;
 
           y += sy;
           err += dx;
 
-          const altTile = this.game.ref(x, y);
-          if (!this.game.isWater(altTile)) {
+          const altTile = this.map.ref(x, y);
+          if (!this.isWaterTile(altTile)) {
             return null;
           }
           tiles.push(altTile);

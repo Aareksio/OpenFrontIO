@@ -193,9 +193,16 @@ export class WarshipExecution implements Execution {
         case PathStatus.PENDING:
           this.warship.touch();
           break;
-        case PathStatus.NOT_FOUND:
-          console.log(`path not found to target`);
+        case PathStatus.NOT_FOUND: {
+          const srcComp = this.mg.getWaterComponent(this.warship.tile());
+          const dstComp = this.mg.getWaterComponent(
+            this.warship.targetUnit()!.tile(),
+          );
+          console.warn(
+            `path not found to trade ship: src=${this.warship.tile()} comp=${srcComp}, dst=${this.warship.targetUnit()!.tile()} comp=${dstComp}`,
+          );
           break;
+        }
       }
     }
   }
@@ -223,10 +230,15 @@ export class WarshipExecution implements Execution {
       case PathStatus.PENDING:
         this.warship.touch();
         return;
-      case PathStatus.NOT_FOUND:
-        console.warn(`path not found to target tile`);
+      case PathStatus.NOT_FOUND: {
+        const srcComp = this.mg.getWaterComponent(this.warship.tile());
+        const dstComp = this.mg.getWaterComponent(this.warship.targetTile()!);
+        console.warn(
+          `path not found to patrol: src=${this.warship.tile()} comp=${srcComp}, dst=${this.warship.targetTile()} comp=${dstComp}`,
+        );
         this.warship.setTargetTile(undefined);
         break;
+      }
     }
   }
 
@@ -243,6 +255,10 @@ export class WarshipExecution implements Execution {
     const maxAttemptBeforeExpand: number = 500;
     let attempts: number = 0;
     let expandCount: number = 0;
+
+    // Get warship's water component for connectivity check
+    const warshipComponent = this.mg.getWaterComponent(this.warship.tile());
+
     while (expandCount < 3) {
       const x =
         this.mg.x(this.warship.patrolTile()!) +
@@ -257,6 +273,20 @@ export class WarshipExecution implements Execution {
       if (
         !this.mg.isOcean(tile) ||
         (!allowShoreline && this.mg.isShoreline(tile))
+      ) {
+        attempts++;
+        if (attempts === maxAttemptBeforeExpand) {
+          expandCount++;
+          attempts = 0;
+          warshipPatrolRange =
+            warshipPatrolRange + Math.floor(warshipPatrolRange / 2);
+        }
+        continue;
+      }
+      // Check water component connectivity
+      if (
+        warshipComponent !== null &&
+        !this.mg.hasWaterComponent(tile, warshipComponent)
       ) {
         attempts++;
         if (attempts === maxAttemptBeforeExpand) {

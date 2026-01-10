@@ -93,7 +93,7 @@ export class GameImpl implements Game {
 
   private _isPaused: boolean = false;
   private _miniWaterGraph: AbstractGraph | null = null;
-  private _waterPathfinder: GameMapHPAStar | null = null;
+  private _miniWaterHPA: GameMapHPAStar | null = null;
 
   constructor(
     private _humans: PlayerInfo[],
@@ -120,8 +120,12 @@ export class GameImpl implements Game {
         AbstractGraphBuilder.CLUSTER_SIZE,
       );
       this._miniWaterGraph = graphBuilder.build(false);
-      // HPA* will extract graph via game.miniWaterGraph()
-      this._waterPathfinder = new GameMapHPAStar(this, { cachePaths: true });
+      // HPA* operates on minimap with its abstract graph
+      this._miniWaterHPA = new GameMapHPAStar(
+        this.miniGameMap,
+        this._miniWaterGraph,
+        { cachePaths: true },
+      );
     }
   }
 
@@ -976,8 +980,8 @@ export class GameImpl implements Game {
   railNetwork(): RailNetwork {
     return this._railNetwork;
   }
-  waterPathfinder(): AStar | null {
-    return this._waterPathfinder;
+  miniWaterHPA(): AStar | null {
+    return this._miniWaterHPA;
   }
   miniWaterGraph(): AbstractGraph | null {
     return this._miniWaterGraph;
@@ -994,10 +998,19 @@ export class GameImpl implements Game {
       return this._miniWaterGraph.getComponentId(miniTile);
     }
 
-    // Shore tile: find water neighbor
+    // Shore tile: find water neighbor (expand search for minimap resolution loss)
     for (const n of this.miniGameMap.neighbors(miniTile)) {
       if (this.miniGameMap.isWater(n)) {
         return this._miniWaterGraph.getComponentId(n);
+      }
+    }
+
+    // Extended search: check 2-hop neighbors for narrow straits
+    for (const n of this.miniGameMap.neighbors(miniTile)) {
+      for (const n2 of this.miniGameMap.neighbors(n)) {
+        if (this.miniGameMap.isWater(n2)) {
+          return this._miniWaterGraph.getComponentId(n2);
+        }
       }
     }
     return null;
@@ -1025,6 +1038,18 @@ export class GameImpl implements Game {
         this._miniWaterGraph.getComponentId(n) === component
       ) {
         return true;
+      }
+    }
+
+    // Extended search: check 2-hop neighbors for narrow straits
+    for (const n of this.miniGameMap.neighbors(miniTile)) {
+      for (const n2 of this.miniGameMap.neighbors(n)) {
+        if (
+          this.miniGameMap.isWater(n2) &&
+          this._miniWaterGraph.getComponentId(n2) === component
+        ) {
+          return true;
+        }
       }
     }
     return false;

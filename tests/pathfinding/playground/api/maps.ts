@@ -117,10 +117,18 @@ export async function loadMap(mapName: string): Promise<MapCache> {
   const mapsDir = getMapsDirectory();
 
   // Use the existing setupFromPath utility to load the map
-  const game = await setupFromPath(mapsDir, mapName);
+  const game = await setupFromPath(mapsDir, mapName, { disableNavMesh: false });
 
-  // Initialize GameMapHPAStar (extracts pre-built graph from game)
-  const hpaStar = new GameMapHPAStar(game, { cachePaths: config.cachePaths });
+  // Get pre-built graph from game
+  const graph = game.miniWaterGraph();
+  if (!graph) {
+    throw new Error(`No water graph available for map: ${mapName}`);
+  }
+
+  // Initialize GameMapHPAStar with minimap and graph
+  const hpaStar = new GameMapHPAStar(game.miniMap(), graph, {
+    cachePaths: config.cachePaths,
+  });
 
   const cacheEntry: MapCache = { game, hpaStar };
 

@@ -293,14 +293,17 @@ export class UniversalPathFinding {
  */
 export class PathFinding {
   static Water(game: Game): PathFinder<TileRef> {
-    const hpa = game.waterPathfinder();
+    const hpa = game.miniWaterHPA();
 
     if (!hpa) {
       return PathFinding.WaterFallback(game);
     }
 
-    // Wrap HPA* with shore coercing to handle shore tiles
-    return new TilePathFinder(game, new ShoreCoercingAStar(game.map(), hpa));
+    // MiniAStar handles full↔mini conversion, ShoreCoercing at minimap level
+    return new TilePathFinder(
+      game,
+      new MiniAStar(game, (map) => new ShoreCoercingAStar(map, hpa)),
+    );
   }
 
   static WaterFallback(game: Game): PathFinder<TileRef> {

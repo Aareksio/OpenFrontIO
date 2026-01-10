@@ -107,14 +107,14 @@ export class ShoreCoercingAStar implements AStar {
       return { water: tile, original: null };
     }
 
-    // Find water neighbor
+    // Find adjacent water neighbor
     for (const n of this.map.neighbors(tile)) {
       if (this.map.isWater(n)) {
         return { water: n, original: tile };
       }
     }
 
-    // No water neighbor found
+    // No water neighbor found - let HPA* handle at minimap level
     return { water: null, original: tile };
   }
 }

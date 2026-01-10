@@ -3,7 +3,7 @@
 
 import { GameMap, TileRef } from "../../../game/GameMap";
 
-const LAND_MARKER = 0xff; // Must fit in Uint8Array
+export const LAND_MARKER = 0xff; // Must fit in Uint8Array
 
 /**
  * Manages water component identification using flood-fill.
