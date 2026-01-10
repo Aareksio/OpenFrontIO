@@ -1,6 +1,7 @@
 import { PathFinding } from "../pathfinding/PathFinder";
+import { TileSpatialQuery } from "../pathfinding/spatial/SpatialQuery";
 import { Game, Player, UnitType } from "./Game";
-import { andFN, GameMap, manhattanDistFN, TileRef } from "./GameMap";
+import { TileRef } from "./GameMap";
 
 export function canBuildTransportShip(
   game: Game,
@@ -37,15 +38,13 @@ export function canBuildTransportShip(
   if (validShores.length === 0) return false;
 
   // Find closest valid shore as spawn (manhattan)
-  return validShores.reduce((closest, current) =>
-    game.manhattanDist(dst, current) < game.manhattanDist(dst, closest)
-      ? current
-      : closest,
-  );
+  const spatial = new TileSpatialQuery(game.map());
+  return spatial.manhattanNearest(validShores, dst) ?? false;
 }
 
 export function targetTransportTile(gm: Game, tile: TileRef): TileRef | null {
   const owner = gm.playerBySmallID(gm.ownerID(tile));
+  const spatial = new TileSpatialQuery(gm.map());
 
   if (owner.isPlayer()) {
     // Find closest shore of target player to clicked tile (manhattan)
@@ -54,14 +53,14 @@ export function targetTransportTile(gm: Game, tile: TileRef): TileRef | null {
     );
     if (shoreTiles.length === 0) return null;
 
-    return shoreTiles.reduce((closest, current) =>
-      gm.manhattanDist(tile, current) < gm.manhattanDist(tile, closest)
-        ? current
-        : closest,
-    );
+    return spatial.manhattanNearest(shoreTiles, tile);
   } else {
     // Terra nullius: BFS for nearby unowned shore tiles
-    return closestShoreTN(gm, tile, 50);
+    return spatial.bfsNearest(
+      tile,
+      50,
+      (t) => !gm.hasOwner(t) && gm.isShore(t),
+    );
   }
 }
 
@@ -78,7 +77,7 @@ export function bestShoreDeploymentSource(
     console.warn(`bestShoreDeploymentSource: path not found`);
     return false;
   }
-  // ShoreCoercingAStar prepends the original shore tile to path
+  // ShoreCoercingTransformer prepends the original shore tile to path
   return path[0];
 }
 
@@ -90,13 +89,23 @@ export function candidateShoreTiles(
   const targetComponent = gm.getWaterComponent(target);
   if (targetComponent === null) return [];
 
-  let closestManhattanDistance = Infinity;
+  const spatial = new TileSpatialQuery(gm.map());
+
+  // Pre-filter to shores on same component
+  const borderShoreTiles = Array.from(player.borderTiles()).filter(
+    (t) => gm.isShore(t) && gm.hasWaterComponent(t, targetComponent),
+  );
+
+  if (borderShoreTiles.length === 0) return [];
+
+  // Manhattan-closest tile
+  const bestByManhattan = spatial.manhattanNearest(borderShoreTiles, target);
+
+  // Extremum tiles
   let minX = Infinity,
     minY = Infinity,
     maxX = -Infinity,
     maxY = -Infinity;
-
-  let bestByManhattan: TileRef | null = null;
   const extremumTiles: Record<string, TileRef | null> = {
     minX: null,
     minY: null,
@@ -104,22 +113,8 @@ export function candidateShoreTiles(
     maxY: null,
   };
 
-  // Pre-filter to shores on same component
-  const borderShoreTiles = Array.from(player.borderTiles()).filter(
-    (t) => gm.isShore(t) && gm.hasWaterComponent(t, targetComponent),
-  );
-
   for (const tile of borderShoreTiles) {
-    const distance = gm.manhattanDist(tile, target);
     const cell = gm.cell(tile);
-
-    // Manhattan-closest tile
-    if (distance < closestManhattanDistance) {
-      closestManhattanDistance = distance;
-      bestByManhattan = tile;
-    }
-
-    // Extremum tiles
     if (cell.x < minX) {
       minX = cell.x;
       extremumTiles.minX = tile;
@@ -154,23 +149,4 @@ export function candidateShoreTiles(
   ].filter(Boolean) as number[];
 
   return candidates;
-}
-
-function closestShoreTN(
-  gm: GameMap,
-  tile: TileRef,
-  searchDist: number,
-): TileRef | null {
-  const tn = Array.from(
-    gm.bfs(
-      tile,
-      andFN((_, t) => !gm.hasOwner(t), manhattanDistFN(tile, searchDist)),
-    ),
-  )
-    .filter((t) => gm.isShore(t))
-    .sort((a, b) => gm.manhattanDist(tile, a) - gm.manhattanDist(tile, b));
-  if (tn.length === 0) {
-    return null;
-  }
-  return tn[0];
 }

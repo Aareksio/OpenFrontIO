@@ -2,11 +2,8 @@
 // Use when performance is not critical, inline otherwise
 // See AStarWaterAdapter.ts for fully inlined water A* implementation
 
+import { PathFinder } from "../types";
 import { BucketQueue, PriorityQueue } from "./PriorityQueue";
-
-export interface AStar {
-  search(from: number | number[], to: number): number[] | null;
-}
 
 export interface GenericAStarAdapter {
   // Important optimization: write to the buffer and return the count
@@ -25,7 +22,7 @@ export interface GenericAStarConfig {
   maxIterations?: number;
 }
 
-export class GenericAStar implements AStar {
+export class GenericAStar implements PathFinder<number> {
   private stamp = 1;
 
   private readonly closedStamp: Uint32Array;
@@ -48,7 +45,7 @@ export class GenericAStar implements AStar {
     this.queue = new BucketQueue(this.adapter.maxPriority());
   }
 
-  search(start: number | number[], goal: number): number[] | null {
+  findPath(start: number | number[], goal: number): number[] | null {
     // Advance stamp (handles overflow)
     this.stamp++;
     if (this.stamp === 0) {

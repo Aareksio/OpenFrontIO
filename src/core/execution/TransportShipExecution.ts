@@ -11,7 +11,8 @@ import {
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
 import { targetTransportTile } from "../game/TransportShipUtils";
-import { PathFinder, PathFinding, PathStatus } from "../pathfinding/PathFinder";
+import { PathFinding } from "../pathfinding/PathFinder";
+import { PathStatus, SteppingPathFinder } from "../pathfinding/types";
 import { AttackExecution } from "./AttackExecution";
 
 const malusForRetreat = 25;
@@ -32,7 +33,7 @@ export class TransportShipExecution implements Execution {
 
   private boat: Unit;
 
-  private pathFinder: PathFinder<TileRef>;
+  private pathFinder: SteppingPathFinder<TileRef>;
 
   private originalOwner: Player;
 

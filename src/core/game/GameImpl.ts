@@ -1,11 +1,11 @@
 import { renderNumber } from "../../client/Utils";
 import { Config } from "../configuration/Config";
-import { AStar } from "../pathfinding/algorithms/AStar";
 import {
   AbstractGraph,
   AbstractGraphBuilder,
 } from "../pathfinding/algorithms/hpa/AbstractGraph";
 import { GameMapHPAStar } from "../pathfinding/algorithms/hpa/AStarHPA";
+import { PathFinder } from "../pathfinding/types";
 import { AllPlayersStats, ClientID, Winner } from "../Schemas";
 import { simpleHash } from "../Util";
 import { AllianceImpl } from "./AllianceImpl";
@@ -980,7 +980,7 @@ export class GameImpl implements Game {
   railNetwork(): RailNetwork {
     return this._railNetwork;
   }
-  miniWaterHPA(): AStar | null {
+  miniWaterHPA(): PathFinder<number> | null {
     return this._miniWaterHPA;
   }
   miniWaterGraph(): AbstractGraph | null {

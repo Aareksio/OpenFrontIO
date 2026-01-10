@@ -1,7 +1,8 @@
 // Water A* implementations - inlined for performance + generic adapter
 
 import { GameMap, TileRef } from "../../game/GameMap";
-import { AStar, GenericAStarAdapter } from "./AStar";
+import { PathFinder } from "../types";
+import { GenericAStarAdapter } from "./AStar";
 import { BucketQueue, PriorityQueue } from "./PriorityQueue";
 
 const LAND_BIT = 7; // Bit 7 in terrain indicates land
@@ -11,7 +12,7 @@ export interface GameMapAStarConfig {
   maxIterations?: number;
 }
 
-export class GameMapAStar implements AStar {
+export class GameMapAStar implements PathFinder<number> {
   private stamp = 1;
 
   private readonly closedStamp: Uint32Array;
@@ -41,7 +42,7 @@ export class GameMapAStar implements AStar {
     this.queue = new BucketQueue(maxF);
   }
 
-  search(start: number | number[], goal: number): number[] | null {
+  findPath(start: number | number[], goal: number): number[] | null {
     this.stamp++;
     if (this.stamp === 0) {
       this.closedStamp.fill(0);

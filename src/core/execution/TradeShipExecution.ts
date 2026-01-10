@@ -8,7 +8,8 @@ import {
   UnitType,
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
-import { PathFinder, PathFinding, PathStatus } from "../pathfinding/PathFinder";
+import { PathFinding } from "../pathfinding/PathFinder";
+import { PathStatus, SteppingPathFinder } from "../pathfinding/types";
 import { distSortUnit } from "../Util";
 
 export class TradeShipExecution implements Execution {
@@ -16,7 +17,7 @@ export class TradeShipExecution implements Execution {
   private mg: Game;
   private tradeShip: Unit | undefined;
   private wasCaptured = false;
-  private pathFinder: PathFinder<TileRef>;
+  private pathFinder: SteppingPathFinder<TileRef>;
   private tilesTraveled = 0;
 
   constructor(

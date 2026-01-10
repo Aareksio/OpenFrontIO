@@ -8,11 +8,9 @@ import {
   UnitType,
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
-import {
-  ParabolaUniversalPathFinder,
-  PathFinding,
-  PathStatus,
-} from "../pathfinding/PathFinder";
+import { ParabolaUniversalPathFinder } from "../pathfinding/ParabolaPathFinder";
+import { PathFinding } from "../pathfinding/PathFinder";
+import { PathStatus } from "../pathfinding/types";
 import { PseudoRandom } from "../PseudoRandom";
 import { simpleHash } from "../Util";
 import { NukeExecution } from "./NukeExecution";

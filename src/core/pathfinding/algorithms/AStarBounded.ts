@@ -1,7 +1,7 @@
 // Bounded A* for cluster-local pathfinding in HPA*
 
 import { GameMap, TileRef } from "../../game/GameMap";
-import { AStar } from "./AStar";
+import { PathFinder } from "../types";
 import { BucketQueue } from "./PriorityQueue";
 
 const LAND_BIT = 7;
@@ -18,7 +18,7 @@ export interface SearchBounds {
   maxY: number;
 }
 
-export class BoundedAStar implements AStar {
+export class BoundedAStar implements PathFinder<number> {
   private stamp = 1;
 
   private readonly closedStamp: Uint32Array;
@@ -51,7 +51,7 @@ export class BoundedAStar implements AStar {
     this.queue = new BucketQueue(maxF);
   }
 
-  search(start: number | number[], goal: number): number[] | null {
+  findPath(start: number | number[], goal: number): number[] | null {
     const starts = Array.isArray(start) ? start : [start];
     const goalX = goal % this.mapWidth;
     const goalY = (goal / this.mapWidth) | 0;

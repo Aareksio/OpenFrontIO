@@ -18,14 +18,15 @@ import {
 } from "../../src/core/game/TerrainMapLoader";
 import { UserSettings } from "../../src/core/game/UserSettings";
 import { GenericAStar } from "../../src/core/pathfinding/algorithms/AStar";
-import { MiniAStar } from "../../src/core/pathfinding/algorithms/AStarMini";
 import {
   GameMapAStar,
   WaterGridAdapter,
 } from "../../src/core/pathfinding/algorithms/AStarWaterAdapter";
 import { GameMapHPAStar } from "../../src/core/pathfinding/algorithms/hpa/AStarHPA";
-import { PathFinder, PathFinding } from "../../src/core/pathfinding/PathFinder";
+import { PathFinding } from "../../src/core/pathfinding/PathFinder";
 import { TilePathFinder } from "../../src/core/pathfinding/TilePathFinder";
+import { MiniMapTransformer } from "../../src/core/pathfinding/transformers/MiniMapTransformer";
+import { SteppingPathFinder } from "../../src/core/pathfinding/types";
 import { GameConfig } from "../../src/core/Schemas";
 import { TestConfig } from "../util/TestConfig";
 
@@ -50,21 +51,23 @@ export type BenchmarkSummary = {
   avgTime: number;
 };
 
-export function getAdapter(game: Game, name: string): PathFinder<TileRef> {
+export function getAdapter(
+  game: Game,
+  name: string,
+): SteppingPathFinder<TileRef> {
   switch (name) {
     case "a.baseline": {
       return new TilePathFinder(
         game,
-        new MiniAStar(game, (map) => new GameMapAStar(map)),
+        new MiniMapTransformer(new GameMapAStar(game.miniMap()), game),
       );
     }
     case "a.generic": {
+      const miniMap = game.miniMap();
+      const adapter = new WaterGridAdapter(miniMap);
       return new TilePathFinder(
         game,
-        new MiniAStar(game, (map) => {
-          const adapter = new WaterGridAdapter(map);
-          return new GenericAStar({ adapter });
-        }),
+        new MiniMapTransformer(new GenericAStar({ adapter }), game),
       );
     }
     case "a.full": {
@@ -128,7 +131,7 @@ export async function getScenario(
 }
 
 export function measurePathLength(
-  adapter: PathFinder<TileRef>,
+  adapter: SteppingPathFinder<TileRef>,
   route: BenchmarkRoute,
 ): number | null {
   const path = adapter.findPath(route.from, route.to);
@@ -143,7 +146,7 @@ export function measureTime<T>(fn: () => T): { result: T; time: number } {
 }
 
 export function measureExecutionTime(
-  adapter: PathFinder<TileRef>,
+  adapter: SteppingPathFinder<TileRef>,
   route: BenchmarkRoute,
   executions: number = 1,
 ): number | null {

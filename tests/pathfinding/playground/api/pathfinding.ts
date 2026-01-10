@@ -1,6 +1,6 @@
 import { TileRef } from "../../../../src/core/game/GameMap.js";
 import { GameMapHPAStar } from "../../../../src/core/pathfinding/algorithms/hpa/AStarHPA.js";
-import { PathFinder } from "../../../../src/core/pathfinding/PathFinder.js";
+import { SteppingPathFinder } from "../../../../src/core/pathfinding/types.js";
 import { getAdapter } from "../../utils.js";
 import { COMPARISON_ADAPTERS, loadMap } from "./maps.js";
 
@@ -30,7 +30,10 @@ export interface PathfindResult {
 }
 
 // Cache adapters per map
-const adapterCache = new Map<string, Map<string, PathFinder<TileRef>>>();
+const adapterCache = new Map<
+  string,
+  Map<string, SteppingPathFinder<TileRef>>
+>();
 
 /**
  * Get or create an adapter for a map
@@ -39,7 +42,7 @@ function getOrCreateAdapter(
   mapName: string,
   adapterName: string,
   game: any,
-): PathFinder<TileRef> {
+): SteppingPathFinder<TileRef> {
   if (!adapterCache.has(mapName)) {
     adapterCache.set(mapName, new Map());
   }
@@ -72,7 +75,8 @@ function computePrimaryPath(
   toRef: TileRef,
 ): PrimaryResult {
   const start = performance.now();
-  const path = hpaStar.findPath(fromRef, toRef, true); // debug=true
+  hpaStar.debugMode = true;
+  const path = hpaStar.findPath(fromRef, toRef);
   const time = performance.now() - start;
 
   const debugInfo = hpaStar.debugInfo;
@@ -106,7 +110,7 @@ function computePrimaryPath(
  * Compute comparison path using adapter
  */
 function computeComparisonPath(
-  adapter: PathFinder<TileRef>,
+  adapter: SteppingPathFinder<TileRef>,
   game: any,
   fromRef: TileRef,
   toRef: TileRef,

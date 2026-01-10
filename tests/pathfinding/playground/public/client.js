@@ -886,18 +886,6 @@ function updateTimingsPanel(result) {
     initialPathValueEl.style.color = "#666";
   }
 
-  // Smooth Path
-  const smoothPathEl = document.getElementById("timingSmoothPath");
-  const smoothPathValueEl = document.getElementById("timingSmoothPathValue");
-  smoothPathEl.style.display = "flex";
-  if (timings.buildSmoothPath !== undefined) {
-    smoothPathValueEl.textContent = `${timings.buildSmoothPath.toFixed(2)}ms`;
-    smoothPathValueEl.style.color = "#f5f5f5";
-  } else {
-    smoothPathValueEl.textContent = "—";
-    smoothPathValueEl.style.color = "#666";
-  }
-
   // Show comparisons section
   const comparisonsSection = document.getElementById("comparisonsSection");
   const comparisonsContainer = document.getElementById("comparisonsContainer");

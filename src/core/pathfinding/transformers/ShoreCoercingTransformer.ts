@@ -1,23 +1,23 @@
-// Shore-coercing A* wrapper that converts shore tiles to water tiles for pathfinding
+// Shore-coercing transformer that converts shore tiles to water tiles for pathfinding
 
 import { GameMap, TileRef } from "../../game/GameMap";
-import { AStar } from "./AStar";
+import { PathFinder } from "../types";
 
 /**
- * Wraps an A* implementation to handle shore tiles.
+ * Wraps a PathFinder to handle shore tiles.
  * Coerces shore tiles to nearby water tiles before pathfinding,
  * then fixes the path extremes to include the original shore tiles.
  *
  * Works at whatever resolution the map provides - can be used with
  * full map or minimap-based pathfinders.
  */
-export class ShoreCoercingAStar implements AStar {
+export class ShoreCoercingTransformer implements PathFinder<number> {
   constructor(
+    private inner: PathFinder<number>,
     private map: GameMap,
-    private innerAStar: AStar,
   ) {}
 
-  search(from: TileRef | TileRef[], to: TileRef): TileRef[] | null {
+  findPath(from: TileRef | TileRef[], to: TileRef): TileRef[] | null {
     // Coerce from tiles
     const fromArray = Array.isArray(from) ? from : [from];
     const coercedFromArray: Array<{
@@ -52,7 +52,7 @@ export class ShoreCoercingAStar implements AStar {
         : coercedFromArray.map((c) => c.water);
 
     // Search on water tiles
-    const path = this.innerAStar.search(waterFrom, coercedTo.water);
+    const path = this.inner.findPath(waterFrom, coercedTo.water);
     if (!path || path.length === 0) {
       return null;
     }

@@ -7,12 +7,13 @@ import {
   UnitType,
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
-import { PathFinder, PathFinding, PathStatus } from "../pathfinding/PathFinder";
+import { PathFinding } from "../pathfinding/PathFinder";
+import { PathStatus, SteppingPathFinder } from "../pathfinding/types";
 import { NukeType } from "../StatsSchemas";
 
 export class SAMMissileExecution implements Execution {
   private active = true;
-  private pathFinder: PathFinder<TileRef>;
+  private pathFinder: SteppingPathFinder<TileRef>;
   private SAMMissile: Unit | undefined;
   private mg: Game;
   private speed: number = 0;

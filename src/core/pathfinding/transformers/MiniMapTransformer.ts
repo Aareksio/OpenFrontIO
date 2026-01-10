@@ -1,22 +1,16 @@
-// Minimap A* wrapper with coordinate conversion and path upscaling
+// Minimap transformer with coordinate conversion and path upscaling
 
 import { Cell, Game } from "../../game/Game";
-import { GameMap, TileRef } from "../../game/GameMap";
-import { AStar } from "./AStar";
+import { TileRef } from "../../game/GameMap";
+import { PathFinder } from "../types";
 
-export type AStarFactory = (map: GameMap) => AStar;
-
-export class MiniAStar implements AStar {
-  private innerAStar: AStar;
-
+export class MiniMapTransformer implements PathFinder<number> {
   constructor(
+    private inner: PathFinder<number>,
     private game: Game,
-    factory: AStarFactory,
-  ) {
-    this.innerAStar = factory(game.miniMap());
-  }
+  ) {}
 
-  search(from: TileRef | TileRef[], to: TileRef): TileRef[] | null {
+  findPath(from: TileRef | TileRef[], to: TileRef): TileRef[] | null {
     const gameMap = this.game.map();
     const miniMap = this.game.miniMap();
 
@@ -34,7 +28,7 @@ export class MiniAStar implements AStar {
     );
 
     // Search on minimap
-    const path = this.innerAStar.search(miniFrom, miniTo);
+    const path = this.inner.findPath(miniFrom, miniTo);
     if (!path || path.length === 0) {
       return null;
     }

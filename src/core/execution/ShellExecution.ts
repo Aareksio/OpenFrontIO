@@ -1,11 +1,12 @@
 import { Execution, Game, Player, Unit, UnitType } from "../game/Game";
 import { TileRef } from "../game/GameMap";
-import { PathFinder, PathFinding, PathStatus } from "../pathfinding/PathFinder";
+import { PathFinding } from "../pathfinding/PathFinder";
+import { PathStatus, SteppingPathFinder } from "../pathfinding/types";
 import { PseudoRandom } from "../PseudoRandom";
 
 export class ShellExecution implements Execution {
   private active = true;
-  private pathFinder: PathFinder<TileRef>;
+  private pathFinder: SteppingPathFinder<TileRef>;
   private shell: Unit | undefined;
   private mg: Game;
   private destroyAtTick: number = -1;

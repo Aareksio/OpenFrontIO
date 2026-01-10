@@ -1,19 +1,30 @@
 import { Game } from "../game/Game";
 import { TileRef } from "../game/GameMap";
-import { PathFinder, PathResult, PathStatus } from "./PathFinder";
-import { AStar } from "./algorithms/AStar";
+import { PathFinderStepper } from "./PathFinderStepper";
+import {
+  PathFinder,
+  PathResult,
+  PathStatus,
+  SteppingPathFinder,
+} from "./types";
 
-export class TilePathFinder implements PathFinder<TileRef> {
-  private pathIndex = 0;
-  private path: TileRef[] | null = null;
-  private lastTo: TileRef | null = null;
+/**
+ * TilePathFinder - wraps a PathFinder<number> for tile-based pathfinding.
+ * Adds validation and distance checking on top of PathFinderStepper.
+ */
+export class TilePathFinder implements SteppingPathFinder<TileRef> {
+  private stepper: PathFinderStepper<TileRef>;
 
   constructor(
     private game: Game,
-    private aStar: AStar,
-  ) {}
+    pathFinder: PathFinder<number>,
+  ) {
+    // TileRef is a branded number, so === works for equality
+    this.stepper = new PathFinderStepper(pathFinder, (a, b) => a === b);
+  }
 
   next(from: TileRef, to: TileRef, dist?: number): PathResult<TileRef> {
+    // Validate inputs
     if (typeof from !== "number" || typeof to !== "number") {
       return { status: PathStatus.NOT_FOUND };
     }
@@ -22,78 +33,28 @@ export class TilePathFinder implements PathFinder<TileRef> {
       return { status: PathStatus.NOT_FOUND };
     }
 
+    // Early exit if at destination
     if (from === to) {
       return { status: PathStatus.COMPLETE, node: to };
     }
 
+    // Distance-based early exit
     if (dist !== undefined && dist > 0) {
       const distance = this.game.manhattanDist(from, to);
-
       if (distance <= dist) {
         return { status: PathStatus.COMPLETE, node: from };
       }
     }
 
-    if (this.lastTo !== to) {
-      this.path = null;
-      this.pathIndex = 0;
-      this.lastTo = to;
-    }
-
-    if (this.path === null) {
-      this.cachePath(from, to);
-
-      if (this.path === null) {
-        return { status: PathStatus.NOT_FOUND };
-      }
-    }
-
-    const expectedPos = this.path[this.pathIndex - 1];
-    if (this.pathIndex > 0 && from !== expectedPos) {
-      this.cachePath(from, to);
-
-      if (this.path === null) {
-        return { status: PathStatus.NOT_FOUND };
-      }
-    }
-
-    if (this.pathIndex >= this.path.length) {
-      return { status: PathStatus.COMPLETE, node: to };
-    }
-
-    const nextNode = this.path[this.pathIndex];
-    this.pathIndex++;
-
-    return { status: PathStatus.NEXT, node: nextNode };
+    // Delegate to stepper
+    return this.stepper.next(from, to);
   }
 
   findPath(from: TileRef | TileRef[], to: TileRef): TileRef[] | null {
-    return this.aStar.search(from, to);
+    return this.stepper.findPath(from, to);
   }
 
   invalidate(): void {
-    this.path = null;
-    this.pathIndex = 0;
-    this.lastTo = null;
-  }
-
-  private cachePath(from: TileRef, to: TileRef): boolean {
-    try {
-      this.path = this.aStar.search(from, to);
-    } catch {
-      return false;
-    }
-
-    if (this.path === null) {
-      return false;
-    }
-
-    this.pathIndex = 0;
-
-    if (this.path.length > 0 && this.path[0] === from) {
-      this.pathIndex = 1;
-    }
-
-    return true;
+    this.stepper.invalidate();
   }
 }

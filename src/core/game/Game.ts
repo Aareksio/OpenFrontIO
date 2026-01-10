@@ -1,6 +1,6 @@
 import { Config } from "../configuration/Config";
-import { AStar } from "../pathfinding/algorithms/AStar";
 import { AbstractGraph } from "../pathfinding/algorithms/hpa/AbstractGraph";
+import { PathFinder } from "../pathfinding/types";
 import { AllPlayersStats, ClientID } from "../Schemas";
 import { getClanTag } from "../Util";
 import { GameMap, TileRef } from "./GameMap";
@@ -783,7 +783,7 @@ export interface Game extends GameMap {
   addUpdate(update: GameUpdate): void;
   railNetwork(): RailNetwork;
   conquerPlayer(conqueror: Player, conquered: Player): void;
-  miniWaterHPA(): AStar | null;
+  miniWaterHPA(): PathFinder<number> | null;
   miniWaterGraph(): AbstractGraph | null;
   getWaterComponent(tile: TileRef): number | null;
   hasWaterComponent(tile: TileRef, component: number): boolean;

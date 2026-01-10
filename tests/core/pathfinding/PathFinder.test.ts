@@ -1,20 +1,20 @@
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { Game } from "../../../src/core/game/Game";
 import { TileRef } from "../../../src/core/game/GameMap";
-import { MiniAStar } from "../../../src/core/pathfinding/algorithms/AStarMini";
-import { ShoreCoercingAStar } from "../../../src/core/pathfinding/algorithms/AStarShoreCoercing";
 import { GameMapAStar } from "../../../src/core/pathfinding/algorithms/AStarWaterAdapter";
-import {
-  PathFinder,
-  PathStatus,
-} from "../../../src/core/pathfinding/PathFinder";
 import { TilePathFinder } from "../../../src/core/pathfinding/TilePathFinder";
+import { MiniMapTransformer } from "../../../src/core/pathfinding/transformers/MiniMapTransformer";
+import { ShoreCoercingTransformer } from "../../../src/core/pathfinding/transformers/ShoreCoercingTransformer";
+import {
+  PathStatus,
+  SteppingPathFinder,
+} from "../../../src/core/pathfinding/types";
 import { setup } from "../../util/Setup";
 import { gameFromString } from "./utils";
 
 type AdapterFactory = {
   name: string;
-  create: (game: Game) => PathFinder<TileRef>;
+  create: (game: Game) => SteppingPathFinder<TileRef>;
 };
 
 const adapters: AdapterFactory[] = [
@@ -23,7 +23,7 @@ const adapters: AdapterFactory[] = [
     create: (game) =>
       new TilePathFinder(
         game,
-        new MiniAStar(game, (map) => new GameMapAStar(map)),
+        new MiniMapTransformer(new GameMapAStar(game.miniMap()), game),
       ),
   },
   {
@@ -34,12 +34,15 @@ const adapters: AdapterFactory[] = [
         // Fallback to baseline for small test maps without navmesh
         return new TilePathFinder(
           game,
-          new MiniAStar(game, (map) => new GameMapAStar(map)),
+          new MiniMapTransformer(new GameMapAStar(game.miniMap()), game),
         );
       }
       return new TilePathFinder(
         game,
-        new MiniAStar(game, (map) => new ShoreCoercingAStar(map, hpa)),
+        new MiniMapTransformer(
+          new ShoreCoercingTransformer(hpa, game.miniMap()),
+          game,
+        ),
       );
     },
   },
@@ -81,7 +84,7 @@ describe.each(adapters)("$name", ({ create }) => {
     });
 
     test("returns single-element path for same tile", async () => {
-      // Old quirk of MiniAStar, we return dst tile twice
+      // Old quirk of MiniMapTransformer, we return dst tile twice
       // Should probably be fixed to return [] instead
 
       const game = await gameFromString(["WW"]);
@@ -231,7 +234,7 @@ describe.each(adapters)("$name", ({ create }) => {
   });
 
   describe("Error handling", () => {
-    // MiniAStar logs console error when nulls passed, muted in test
+    // MiniMapTransformer logs console error when nulls passed, muted in test
 
     test("returns NOT_FOUND for null source", async () => {
       const game = await gameFromString(["WWWW"]);

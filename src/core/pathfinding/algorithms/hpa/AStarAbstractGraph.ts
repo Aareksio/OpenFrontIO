@@ -1,5 +1,6 @@
 // Abstract Graph A* - inlined A* for abstract graph routing
 
+import { PathFinder } from "../../types";
 import { BucketQueue, MinHeap, PriorityQueue } from "../PriorityQueue";
 import { AbstractGraph } from "./AbstractGraph";
 
@@ -9,7 +10,7 @@ export interface AbstractGraphAStarConfig {
   useMinHeap?: boolean; // Use MinHeap instead of BucketQueue (better for variable costs)
 }
 
-export class AbstractGraphAStar {
+export class AbstractGraphAStar implements PathFinder<number> {
   private stamp = 1;
 
   private readonly closedStamp: Uint32Array;
@@ -46,7 +47,16 @@ export class AbstractGraphAStar {
     }
   }
 
-  search(startId: number, goalId: number): number[] | null {
+  findPath(start: number | number[], goal: number): number[] | null {
+    if (Array.isArray(start)) {
+      throw new Error(
+        "AbstractGraphAStar does not support multiple start points",
+      );
+    }
+    return this.findPathSingle(start, goal);
+  }
+
+  private findPathSingle(startId: number, goalId: number): number[] | null {
     // Advance stamp (handles overflow)
     this.stamp++;
     if (this.stamp === 0) {
