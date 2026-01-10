@@ -98,15 +98,4 @@ export class PathFinding {
   static Air(game: Game): SteppingPathFinder<TileRef> {
     return new AirPathFinder(game);
   }
-
-  /** @deprecated Use UniversalPathFinding.Parabola for UI layer compatibility */
-  static Parabola(
-    game: Game,
-    options?: ParabolaOptions,
-  ): ParabolaUniversalPathFinder {
-    return new ParabolaUniversalPathFinder(game, options);
-  }
 }
-
-// Legacy export for backwards compatibility
-export const PathFinders = PathFinding;

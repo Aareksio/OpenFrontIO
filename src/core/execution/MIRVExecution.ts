@@ -9,7 +9,7 @@ import {
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
 import { ParabolaUniversalPathFinder } from "../pathfinding/ParabolaPathFinder";
-import { PathFinding } from "../pathfinding/PathFinder";
+import { UniversalPathFinding } from "../pathfinding/PathFinder";
 import { PathStatus } from "../pathfinding/types";
 import { PseudoRandom } from "../PseudoRandom";
 import { simpleHash } from "../Util";
@@ -51,7 +51,9 @@ export class MirvExecution implements Execution {
     this.mg = mg;
     this.targetPlayer = this.mg.owner(this.dst);
     this.speed = this.mg.config().defaultNukeSpeed();
-    this.pathFinder = PathFinding.Parabola(mg, { increment: this.speed });
+    this.pathFinder = UniversalPathFinding.Parabola(mg, {
+      increment: this.speed,
+    });
 
     // Betrayal on launch
     if (this.targetPlayer.isPlayer()) {

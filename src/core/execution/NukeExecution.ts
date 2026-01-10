@@ -11,7 +11,7 @@ import {
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
 import { ParabolaUniversalPathFinder } from "../pathfinding/ParabolaPathFinder";
-import { PathFinding } from "../pathfinding/PathFinder";
+import { UniversalPathFinding } from "../pathfinding/PathFinder";
 import { PathStatus } from "../pathfinding/types";
 import { PseudoRandom } from "../PseudoRandom";
 import { NukeType } from "../StatsSchemas";
@@ -41,7 +41,7 @@ export class NukeExecution implements Execution {
     if (this.speed === -1) {
       this.speed = this.mg.config().defaultNukeSpeed();
     }
-    this.pathFinder = PathFinding.Parabola(mg, {
+    this.pathFinder = UniversalPathFinding.Parabola(mg, {
       increment: this.speed,
       distanceBasedHeight: this.nukeType !== UnitType.MIRVWarhead,
       directionUp: this.rocketDirectionUp,

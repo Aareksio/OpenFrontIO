@@ -11,7 +11,7 @@ import {
   UnitType,
 } from "../../game/Game";
 import { TileRef, euclDistFN } from "../../game/GameMap";
-import { PathFinding } from "../../pathfinding/PathFinder";
+import { UniversalPathFinding } from "../../pathfinding/PathFinder";
 import { PseudoRandom } from "../../PseudoRandom";
 import { assertNever, boundingBoxTiles } from "../../Util";
 import { NukeExecution } from "../NukeExecution";
@@ -446,7 +446,7 @@ export class NationNukeBehavior {
     targetTile: TileRef,
   ): boolean {
     const speed = this.game.config().defaultNukeSpeed();
-    const pathFinder = PathFinding.Parabola(this.game, {
+    const pathFinder = UniversalPathFinding.Parabola(this.game, {
       increment: speed,
       distanceBasedHeight: true, // Atom/Hydrogen bombs use distance-based height
       directionUp: true, // AI nukes always go "up" for now
