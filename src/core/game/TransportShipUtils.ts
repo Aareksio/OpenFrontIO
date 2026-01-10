@@ -26,144 +26,60 @@ export function canBuildTransportShip(
     return false;
   }
 
-  if (game.isOceanShore(dst)) {
-    let myPlayerBordersOcean = false;
-    for (const bt of player.borderTiles()) {
-      if (game.isOceanShore(bt)) {
-        myPlayerBordersOcean = true;
-        break;
-      }
-    }
+  // Get destination water component
+  const dstComponent = game.getWaterComponent(dst);
+  if (dstComponent === null) return false;
 
-    let otherPlayerBordersOcean = false;
-    if (!game.hasOwner(tile)) {
-      otherPlayerBordersOcean = true;
-    } else {
-      for (const bt of (other as Player).borderTiles()) {
-        if (game.isOceanShore(bt)) {
-          otherPlayerBordersOcean = true;
-          break;
-        }
-      }
-    }
-
-    if (myPlayerBordersOcean && otherPlayerBordersOcean) {
-      return transportShipSpawn(game, player, dst);
-    } else {
-      return false;
-    }
-  }
-
-  // Now we are boating in a lake, so do a bfs from target until we find
-  // a border tile owned by the player
-
-  const tiles = game.bfs(
-    dst,
-    andFN(
-      manhattanDistFN(dst, 300),
-      (_, t: TileRef) => game.isLake(t) || game.isShore(t),
-    ),
+  // Find player shore tiles on same component
+  const validShores = Array.from(player.borderTiles()).filter(
+    (t) => game.isShore(t) && game.hasWaterComponent(t, dstComponent),
   );
+  if (validShores.length === 0) return false;
 
-  const sorted = Array.from(tiles).sort(
-    (a, b) => game.manhattanDist(dst, a) - game.manhattanDist(dst, b),
+  // Find closest valid shore as spawn (manhattan)
+  return validShores.reduce((closest, current) =>
+    game.manhattanDist(dst, current) < game.manhattanDist(dst, closest)
+      ? current
+      : closest,
   );
-
-  for (const t of sorted) {
-    if (game.owner(t) === player) {
-      return transportShipSpawn(game, player, t);
-    }
-  }
-  return false;
-}
-
-function transportShipSpawn(
-  game: Game,
-  player: Player,
-  targetTile: TileRef,
-): TileRef | false {
-  if (!game.isShore(targetTile)) {
-    return false;
-  }
-  const spawn = closestShoreFromPlayer(game, player, targetTile);
-  if (spawn === null) {
-    return false;
-  }
-  return spawn;
-}
-
-export function sourceDstOceanShore(
-  gm: Game,
-  src: Player,
-  tile: TileRef,
-): [TileRef | null, TileRef | null] {
-  const dst = gm.owner(tile);
-  const srcTile = closestShoreFromPlayer(gm, src, tile);
-  let dstTile: TileRef | null = null;
-  if (dst.isPlayer()) {
-    dstTile = closestShoreFromPlayer(gm, dst as Player, tile);
-  } else {
-    dstTile = closestShoreTN(gm, tile, 50);
-  }
-  return [srcTile, dstTile];
 }
 
 export function targetTransportTile(gm: Game, tile: TileRef): TileRef | null {
-  const dst = gm.playerBySmallID(gm.ownerID(tile));
-  let dstTile: TileRef | null = null;
-  if (dst.isPlayer()) {
-    dstTile = closestShoreFromPlayer(gm, dst as Player, tile);
+  const owner = gm.playerBySmallID(gm.ownerID(tile));
+
+  if (owner.isPlayer()) {
+    // Find closest shore of target player to clicked tile (manhattan)
+    const shoreTiles = Array.from((owner as Player).borderTiles()).filter((t) =>
+      gm.isShore(t),
+    );
+    if (shoreTiles.length === 0) return null;
+
+    return shoreTiles.reduce((closest, current) =>
+      gm.manhattanDist(tile, current) < gm.manhattanDist(tile, closest)
+        ? current
+        : closest,
+    );
   } else {
-    dstTile = closestShoreTN(gm, tile, 50);
+    // Terra nullius: BFS for nearby unowned shore tiles
+    return closestShoreTN(gm, tile, 50);
   }
-  return dstTile;
-}
-
-export function closestShoreFromPlayer(
-  gm: GameMap,
-  player: Player,
-  target: TileRef,
-): TileRef | null {
-  const shoreTiles = Array.from(player.borderTiles()).filter((t) =>
-    gm.isShore(t),
-  );
-  if (shoreTiles.length === 0) {
-    return null;
-  }
-
-  return shoreTiles.reduce((closest, current) => {
-    const closestDistance = gm.manhattanDist(target, closest);
-    const currentDistance = gm.manhattanDist(target, current);
-    return currentDistance < closestDistance ? current : closest;
-  });
 }
 
 export function bestShoreDeploymentSource(
   gm: Game,
   player: Player,
-  target: TileRef,
+  dst: TileRef,
 ): TileRef | false {
-  const t = targetTransportTile(gm, target);
-  if (t === null) return false;
-
-  const candidates = candidateShoreTiles(gm, player, t);
+  const candidates = candidateShoreTiles(gm, player, dst);
   if (candidates.length === 0) return false;
 
-  const path = PathFinding.Water(gm).findPath(candidates, t);
+  const path = PathFinding.Water(gm).findPath(candidates, dst);
   if (!path || path.length === 0) {
     console.warn(`bestShoreDeploymentSource: path not found`);
     return false;
   }
-  const potential = path[0];
-  // Since mini a* downscales the map, we need to check the neighbors
-  // of the potential tile to find a valid deployment point
-  const neighbors = gm
-    .neighbors(potential)
-    .filter((n) => gm.isShore(n) && gm.owner(n) === player);
-  if (neighbors.length === 0) {
-    return false;
-  }
-  return neighbors[0];
+  // ShoreCoercingAStar prepends the original shore tile to path
+  return path[0];
 }
 
 export function candidateShoreTiles(
@@ -171,6 +87,9 @@ export function candidateShoreTiles(
   player: Player,
   target: TileRef,
 ): TileRef[] {
+  const targetComponent = gm.getWaterComponent(target);
+  if (targetComponent === null) return [];
+
   let closestManhattanDistance = Infinity;
   let minX = Infinity,
     minY = Infinity,
@@ -185,8 +104,9 @@ export function candidateShoreTiles(
     maxY: null,
   };
 
-  const borderShoreTiles = Array.from(player.borderTiles()).filter((t) =>
-    gm.isShore(t),
+  // Pre-filter to shores on same component
+  const borderShoreTiles = Array.from(player.borderTiles()).filter(
+    (t) => gm.isShore(t) && gm.hasWaterComponent(t, targetComponent),
   );
 
   for (const tile of borderShoreTiles) {

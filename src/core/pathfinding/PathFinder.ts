@@ -8,6 +8,7 @@ import { DistanceBasedBezierCurve } from "../utilities/Line";
 import { GenericAStar } from "./algorithms/AStar";
 import { MiniAStar } from "./algorithms/AStarMini";
 import { RailAdapter } from "./algorithms/AStarRailAdapter";
+import { ShoreCoercingAStar } from "./algorithms/AStarShoreCoercing";
 import { StationGraphAdapter } from "./algorithms/AStarStationAdapter";
 import { GameMapAStar } from "./algorithms/AStarWaterAdapter";
 import { TilePathFinder } from "./TilePathFinder";
@@ -298,13 +299,17 @@ export class PathFinding {
       return PathFinding.WaterFallback(game);
     }
 
-    return new TilePathFinder(game, hpa);
+    // Wrap HPA* with shore coercing to handle shore tiles
+    return new TilePathFinder(game, new ShoreCoercingAStar(game.map(), hpa));
   }
 
   static WaterFallback(game: Game): PathFinder<TileRef> {
     return new TilePathFinder(
       game,
-      new MiniAStar(game, (map) => new GameMapAStar(map)),
+      new ShoreCoercingAStar(
+        game.map(),
+        new MiniAStar(game, (map) => new GameMapAStar(map)),
+      ),
     );
   }
 

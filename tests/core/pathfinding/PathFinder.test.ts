@@ -3,7 +3,6 @@ import { Game } from "../../../src/core/game/Game";
 import { TileRef } from "../../../src/core/game/GameMap";
 import { MiniAStar } from "../../../src/core/pathfinding/algorithms/AStarMini";
 import { GameMapAStar } from "../../../src/core/pathfinding/algorithms/AStarWaterAdapter";
-import { GameMapHPAStar } from "../../../src/core/pathfinding/algorithms/hpa/AStarHPA";
 import {
   PathFinder,
   PathStatus,
@@ -31,10 +30,11 @@ const adapters: AdapterFactory[] = [
     create: (game) => {
       const hpa = game.waterPathfinder();
       if (!hpa) {
-        // Create HPA* if not initialized (for small test maps)
-        const newHpa = new GameMapHPAStar(game, { cachePaths: false });
-        newHpa.initialize();
-        return new TilePathFinder(game, newHpa);
+        // Fallback to baseline for small test maps without navmesh
+        return new TilePathFinder(
+          game,
+          new MiniAStar(game, (map) => new GameMapAStar(map)),
+        );
       }
       return new TilePathFinder(game, hpa);
     },

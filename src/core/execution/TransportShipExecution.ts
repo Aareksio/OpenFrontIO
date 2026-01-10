@@ -273,13 +273,18 @@ export class TransportShipExecution implements Execution {
         break;
       case PathStatus.PENDING:
         break;
-      case PathStatus.NOT_FOUND:
+      case PathStatus.NOT_FOUND: {
         // TODO: add to poisoned port list
-        console.warn(`path not found to dst`);
+        const map = this.mg.map();
+        const boatTile = this.boat.tile();
+        console.warn(
+          `TransportShip path not found: boat@(${map.x(boatTile)},${map.y(boatTile)}) -> dst@(${map.x(this.dst)},${map.y(this.dst)}), attacker=${this.attacker.id()}, target=${this.targetID}`,
+        );
         this.attacker.addTroops(this.boat.troops());
         this.boat.delete(false);
         this.active = false;
         return;
+      }
     }
   }
 

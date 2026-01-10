@@ -119,9 +119,8 @@ export async function loadMap(mapName: string): Promise<MapCache> {
   // Use the existing setupFromPath utility to load the map
   const game = await setupFromPath(mapsDir, mapName);
 
-  // Initialize GameMapHPAStar
+  // Initialize GameMapHPAStar (extracts pre-built graph from game)
   const hpaStar = new GameMapHPAStar(game, { cachePaths: config.cachePaths });
-  hpaStar.initialize();
 
   const cacheEntry: MapCache = { game, hpaStar };
 

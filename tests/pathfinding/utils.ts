@@ -75,7 +75,6 @@ export function getAdapter(game: Game, name: string): PathFinder<TileRef> {
       // over adding cache toggles to the existing game instance
       // to avoid adding side effect from benchmark to the game
       const hpa = new GameMapHPAStar(game, { cachePaths: false });
-      hpa.initialize();
       (game as any)._waterPathfinder = hpa;
 
       return PathFinding.Water(game);

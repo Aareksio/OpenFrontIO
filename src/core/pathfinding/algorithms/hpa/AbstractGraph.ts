@@ -51,6 +51,9 @@ export class AbstractGraph {
   // Path cache indexed by edge.id (shared across all users)
   private _pathCache: (TileRef[] | null)[] = [];
 
+  // Water components for componentId lookup
+  private _waterComponents: GameMapWaterComponents | null = null;
+
   constructor(
     readonly clusterSize: number,
     readonly clustersX: number,
@@ -110,6 +113,14 @@ export class AbstractGraph {
 
   _initPathCache(): void {
     this._pathCache = new Array(this._edges.length).fill(null);
+  }
+
+  setWaterComponents(wc: GameMapWaterComponents): void {
+    this._waterComponents = wc;
+  }
+
+  getComponentId(tile: TileRef): number {
+    return this._waterComponents?.getComponentId(tile) ?? 0;
   }
 
   getClusterKey(clusterX: number, clusterY: number): number {
@@ -345,6 +356,9 @@ export class AbstractGraphBuilder {
 
     // Initialize path cache after all edges are built
     this.graph._initPathCache();
+
+    // Store water components for componentId lookups
+    this.graph.setWaterComponents(this.waterComponents);
 
     return this.graph;
   }

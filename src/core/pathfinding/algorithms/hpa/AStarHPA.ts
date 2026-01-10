@@ -4,12 +4,9 @@ import { Game } from "../../../game/Game";
 import { TileRef } from "../../../game/GameMap";
 import { AStar } from "../AStar";
 import { BoundedAStar } from "../AStarBounded";
-import {
-  AbstractGraph,
-  AbstractGraphBuilder,
-  AbstractNode,
-} from "./AbstractGraph";
+import { AbstractGraph, AbstractNode } from "./AbstractGraph";
 import { AbstractGraphAStar } from "./AStarAbstractGraph";
+import { SourceSelector } from "./SourceSelector";
 import { TileBFS } from "./TileBFS";
 
 type PathDebugInfo = {
@@ -33,11 +30,11 @@ type PathDebugInfo = {
 
 export class GameMapHPAStar implements AStar {
   private graph: AbstractGraph;
-  private initialized = false;
   private tileBFS: TileBFS;
   private abstractAStar: AbstractGraphAStar;
   private localAStar: BoundedAStar;
   private localAStarMultiCluster: BoundedAStar;
+  private sourceSelector: SourceSelector;
 
   public debugInfo: PathDebugInfo | null = null;
 
@@ -46,21 +43,22 @@ export class GameMapHPAStar implements AStar {
     private options: {
       cachePaths?: boolean;
     } = {},
-  ) {}
+  ) {
+    // Extract pre-built graph from game
+    const graph = game.miniWaterGraph();
+    if (!graph) {
+      throw new Error(
+        "miniWaterGraph not available. Ensure NavMesh is enabled.",
+      );
+    }
+    this.graph = graph;
 
-  initialize(debug: boolean = false) {
-    const miniMap = this.game.miniMap();
-
-    const graphBuilder = new AbstractGraphBuilder(
-      miniMap,
-      AbstractGraphBuilder.CLUSTER_SIZE,
-    );
-    this.graph = graphBuilder.build(debug);
+    const miniMap = game.miniMap();
 
     // BFS for nearest node search
     this.tileBFS = new TileBFS(miniMap.width() * miniMap.height());
 
-    const clusterSize = AbstractGraphBuilder.CLUSTER_SIZE;
+    const clusterSize = graph.clusterSize;
 
     // AbstractGraphAStar for abstract graph routing
     this.abstractAStar = new AbstractGraphAStar(this.graph);
@@ -77,14 +75,24 @@ export class GameMapHPAStar implements AStar {
       maxMultiClusterNodes,
     );
 
-    this.initialized = true;
+    // SourceSelector for multi-source search
+    this.sourceSelector = new SourceSelector(this.game, this.graph);
   }
 
   search(from: number | number[], to: number): number[] | null {
     if (Array.isArray(from)) {
-      throw new Error("GameMapHPAStar does not support multi-source search");
+      return this.searchMultiSource(from as TileRef[], to as TileRef);
     }
     return this.findPath(from as TileRef, to as TileRef);
+  }
+
+  private searchMultiSource(
+    sources: TileRef[],
+    target: TileRef,
+  ): TileRef[] | null {
+    const bestSource = this.sourceSelector.selectBestSource(sources, target);
+    if (!bestSource) return null;
+    return this.findPath(bestSource, target);
   }
 
   findPath(
@@ -92,12 +100,6 @@ export class GameMapHPAStar implements AStar {
     to: TileRef,
     debug: boolean = false,
   ): TileRef[] | null {
-    if (!this.initialized) {
-      throw new Error(
-        "HPA* not initialized. Call initialize() before using findPath().",
-      );
-    }
-
     if (debug) {
       const allEdges: Array<{
         id: number;
