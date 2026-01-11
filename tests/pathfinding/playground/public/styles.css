@@ -500,6 +500,7 @@ canvas {
   font-size: 20px;
 }
 
+<<<<<<< HEAD
 /* Comparison rows */
 .comparison-row {
   display: flex;
@@ -561,6 +562,8 @@ canvas {
   text-align: right;
 }
 
+=======
+>>>>>>> main
 /* Legend panel (right side) */
 .legend-panel {
   position: fixed;
