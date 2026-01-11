@@ -5,7 +5,6 @@ import { AStarBounded } from "./AStar.Bounded";
 import { AbstractGraph, AbstractNode } from "./AbstractGraph";
 import { BFSGrid } from "./BFS.Grid";
 import { LAND_MARKER } from "./ConnectedComponents";
-import { SourceSelector } from "./hpa/SourceSelector";
 
 type PathDebugInfo = {
   nodePath: TileRef[] | null;
@@ -30,7 +29,7 @@ export class AStarWaterHierarchical implements PathFinder<number> {
   private abstractAStar: AbstractGraphAStar;
   private localAStar: AStarBounded;
   private localAStarMultiCluster: AStarBounded;
-  private sourceSelector: SourceSelector;
+  private sourceResolver: SourceResolver;
 
   public debugInfo: PathDebugInfo | null = null;
   public debugMode: boolean = false;
@@ -59,14 +58,15 @@ export class AStarWaterHierarchical implements PathFinder<number> {
     const maxMultiClusterNodes = multiClusterSize * multiClusterSize;
     this.localAStarMultiCluster = new AStarBounded(map, maxMultiClusterNodes);
 
-    // SourceSelector for multi-source search
-    this.sourceSelector = new SourceSelector(this.map, this.graph);
+    // SourceResolver for multi-source search
+    this.sourceResolver = new SourceResolver(this.map, this.graph);
   }
 
   findPath(from: number | number[], to: number): number[] | null {
     if (Array.isArray(from)) {
       return this.findPathMultiSource(from as TileRef[], to as TileRef);
     }
+
     return this.findPathSingle(from as TileRef, to as TileRef, this.debugMode);
   }
 
@@ -74,9 +74,24 @@ export class AStarWaterHierarchical implements PathFinder<number> {
     sources: TileRef[],
     target: TileRef,
   ): TileRef[] | null {
-    const bestSource = this.sourceSelector.selectBestSource(sources, target);
-    if (!bestSource) return null;
-    return this.findPathSingle(bestSource, target);
+    // 1. Resolve target to abstract node
+    const targetNode = this.sourceResolver.resolveTarget(target);
+    if (!targetNode) return null;
+
+    // 2. Map sources → abstract nodes (cheap O(1) cluster lookup per source)
+    const nodeToSource = this.sourceResolver.resolveSourcesToNodes(sources);
+    if (nodeToSource.size === 0) return null;
+
+    // 3. Run multi-source A* on abstract graph
+    const nodeIds = [...nodeToSource.keys()];
+    const nodePath = this.abstractAStar.findPath(nodeIds, targetNode.id);
+    if (!nodePath) return null;
+
+    // 4. Get winning source tile (nodePath[0] is winning start node)
+    const winningSource = nodeToSource.get(nodePath[0])!;
+
+    // 5. Run full single-source from winner
+    return this.findPathSingle(winningSource, target);
   }
 
   findPathSingle(
@@ -478,5 +493,70 @@ export class AStarWaterHierarchical implements PathFinder<number> {
     }
 
     return path;
+  }
+}
+
+// Helper class for resolving tiles to abstract nodes
+// Assumes tiles are already water and component-filtered (by transformer pipeline)
+class SourceResolver {
+  constructor(
+    private map: GameMap,
+    private graph: AbstractGraph,
+  ) {}
+
+  // Resolves target to its abstract node
+  resolveTarget(target: TileRef): AbstractNode | null {
+    return this.getClusterNode(target);
+  }
+
+  // Maps sources → abstract nodes, returns Map<nodeId, sourceTile>
+  resolveSourcesToNodes(sources: TileRef[]): Map<number, TileRef> {
+    const nodeToSource = new Map<number, TileRef>();
+    const nodeToDist = new Map<number, number>();
+
+    for (const source of sources) {
+      const node = this.getClusterNode(source);
+      if (node === null) continue;
+
+      const x = this.map.x(source);
+      const y = this.map.y(source);
+      const dist = Math.abs(node.x - x) + Math.abs(node.y - y);
+
+      // Keep closest source per node
+      const prevDist = nodeToDist.get(node.id);
+      if (prevDist === undefined || dist < prevDist) {
+        nodeToSource.set(node.id, source);
+        nodeToDist.set(node.id, dist);
+      }
+    }
+
+    return nodeToSource;
+  }
+
+  private getClusterNode(tile: TileRef): AbstractNode | null {
+    const x = this.map.x(tile);
+    const y = this.map.y(tile);
+    const clusterX = Math.floor(x / this.graph.clusterSize);
+    const clusterY = Math.floor(y / this.graph.clusterSize);
+
+    const cluster = this.graph.getCluster(clusterX, clusterY);
+    if (!cluster || cluster.nodeIds.length === 0) return null;
+
+    // Return closest node to tile
+    let bestNode: AbstractNode | null = null;
+    let bestDist = Infinity;
+
+    for (const nodeId of cluster.nodeIds) {
+      const node = this.graph.getNode(nodeId);
+      if (!node) continue;
+
+      const dist = Math.abs(node.x - x) + Math.abs(node.y - y);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestNode = node;
+      }
+    }
+
+    return bestNode;
   }
 }

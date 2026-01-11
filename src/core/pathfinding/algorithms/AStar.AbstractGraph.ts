@@ -15,6 +15,7 @@ export class AbstractGraphAStar implements PathFinder<number> {
   private readonly gScoreStamp: Uint32Array;
   private readonly gScore: Float32Array;
   private readonly cameFrom: Int32Array;
+  private readonly startNode: Int32Array; // tracks which start each node came from
   private readonly queue: PriorityQueue;
   private readonly graph: AbstractGraph;
   private readonly heuristicWeight: number;
@@ -31,6 +32,7 @@ export class AbstractGraphAStar implements PathFinder<number> {
     this.gScoreStamp = new Uint32Array(numNodes);
     this.gScore = new Float32Array(numNodes);
     this.cameFrom = new Int32Array(numNodes);
+    this.startNode = new Int32Array(numNodes);
 
     // For abstract graphs with variable costs, MinHeap may be better
     // BucketQueue is O(1) but requires integer priorities
@@ -47,9 +49,7 @@ export class AbstractGraphAStar implements PathFinder<number> {
 
   findPath(start: number | number[], goal: number): number[] | null {
     if (Array.isArray(start)) {
-      throw new Error(
-        "AbstractGraphAStar does not support multiple start points",
-      );
+      return this.findPathMultiSource(start, goal);
     }
     return this.findPathSingle(start, goal);
   }
@@ -105,7 +105,7 @@ export class AbstractGraphAStar implements PathFinder<number> {
       closedStamp[current] = stamp;
 
       if (current === goalId) {
-        return this.buildPath(startId, goalId);
+        return this.buildPathFromGoal(goalId);
       }
 
       const currentG = gScore[current];
@@ -141,7 +141,102 @@ export class AbstractGraphAStar implements PathFinder<number> {
     return null;
   }
 
-  private buildPath(startId: number, goalId: number): number[] {
+  private findPathMultiSource(
+    startIds: number[],
+    goalId: number,
+  ): number[] | null {
+    if (startIds.length === 0) return null;
+    if (startIds.length === 1) return this.findPathSingle(startIds[0], goalId);
+
+    // Advance stamp (handles overflow)
+    this.stamp++;
+    if (this.stamp === 0) {
+      this.closedStamp.fill(0);
+      this.gScoreStamp.fill(0);
+      this.stamp = 1;
+    }
+
+    const stamp = this.stamp;
+    const graph = this.graph;
+    const closedStamp = this.closedStamp;
+    const gScoreStamp = this.gScoreStamp;
+    const gScore = this.gScore;
+    const cameFrom = this.cameFrom;
+    const startNode = this.startNode;
+    const queue = this.queue;
+    const weight = this.heuristicWeight;
+
+    // Get goal node for heuristic
+    const goalNode = graph.getNode(goalId);
+    if (!goalNode) return null;
+    const goalX = goalNode.x;
+    const goalY = goalNode.y;
+
+    // Initialize all start nodes
+    queue.clear();
+    for (const startId of startIds) {
+      const node = graph.getNode(startId);
+      if (!node) continue;
+
+      gScore[startId] = 0;
+      gScoreStamp[startId] = stamp;
+      cameFrom[startId] = -1;
+      startNode[startId] = startId; // each start is its own origin
+
+      const h = weight * (Math.abs(node.x - goalX) + Math.abs(node.y - goalY));
+      queue.push(startId, h);
+    }
+
+    let iterations = this.maxIterations;
+
+    while (!queue.isEmpty()) {
+      if (--iterations <= 0) {
+        return null;
+      }
+
+      const current = queue.pop();
+
+      if (closedStamp[current] === stamp) continue;
+      closedStamp[current] = stamp;
+
+      if (current === goalId) {
+        return this.buildPathFromGoal(goalId);
+      }
+
+      const currentG = gScore[current];
+      const currentStart = startNode[current];
+      const edges = graph.getNodeEdges(current);
+
+      for (let i = 0; i < edges.length; i++) {
+        const edge = edges[i];
+        const neighbor = graph.getOtherNode(edge, current);
+
+        if (closedStamp[neighbor] === stamp) continue;
+
+        const tentativeG = currentG + edge.cost;
+
+        if (gScoreStamp[neighbor] !== stamp || tentativeG < gScore[neighbor]) {
+          cameFrom[neighbor] = current;
+          gScore[neighbor] = tentativeG;
+          gScoreStamp[neighbor] = stamp;
+          startNode[neighbor] = currentStart; // propagate origin
+
+          const neighborNode = graph.getNode(neighbor);
+          if (neighborNode) {
+            const h =
+              weight *
+              (Math.abs(neighborNode.x - goalX) +
+                Math.abs(neighborNode.y - goalY));
+            queue.push(neighbor, tentativeG + h);
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private buildPathFromGoal(goalId: number): number[] {
     const path: number[] = [];
     let current = goalId;
 
