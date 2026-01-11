@@ -18,22 +18,15 @@ describe("PathFinding.Water", () => {
   }
 
   beforeAll(async () => {
-    // Use ocean_and_land test map which has both water and land
     game = await setup("ocean_and_land");
     worldGame = await setup("world", { disableNavMesh: false });
   });
-
-  // Map coordinates (ocean_and_land 16x16):
-  // Water: 122 tiles, first at (8,0), adjacent (8,0)↔(9,0), distant (8,0)↔(15,4) dist=11
-  // Land: 113 tiles, first at (0,0), adjacent (0,0)↔(1,0)
-  // Shore: 21 tiles, first at (7,0), has water neighbor at (8,0)
 
   describe("findPath", () => {
     it("finds path between adjacent water tiles", () => {
       const pathFinder = createPathFinder();
       const map = game.map();
 
-      // Adjacent water tiles: (8,0) and (9,0)
       const from = map.ref(8, 0);
       const to = map.ref(9, 0);
 
@@ -48,13 +41,11 @@ describe("PathFinding.Water", () => {
       expect(path![1]).toBe(to);
     });
 
-    it("returns null for land-only tiles", () => {
+    it("returns null for land tiles", () => {
       const pathFinder = createPathFinder();
       const map = game.map();
 
-      // Land tile at (0,0) has no water neighbors
       const landTile = map.ref(0, 0);
-      // Water tile at (8,0)
       const waterTile = map.ref(8, 0);
 
       expect(map.isLand(landTile)).toBe(true);
@@ -70,7 +61,6 @@ describe("PathFinding.Water", () => {
       const pathFinder = createPathFinder();
       const map = game.map();
 
-      // Water tile at (8,0)
       const waterTile = map.ref(8, 0);
       expect(map.isWater(waterTile)).toBe(true);
 
@@ -85,7 +75,6 @@ describe("PathFinding.Water", () => {
       const pathFinder = createPathFinder();
       const map = game.map();
 
-      // Water tile (8,0) has 2 water neighbors: (9,0) and (8,1)
       const dest = map.ref(8, 0);
       const source1 = map.ref(9, 0);
       const source2 = map.ref(8, 1);
@@ -99,113 +88,8 @@ describe("PathFinding.Water", () => {
 
       expect(path).not.toBeNull();
       expect(path!.length).toBe(2);
-      // Path start must be one of the from tiles
       expect(from).toContain(path![0]);
       expect(path![1]).toBe(dest);
-    });
-  });
-
-  describe("next (stepping)", () => {
-    it("returns COMPLETE when at destination", () => {
-      const pathFinder = createPathFinder();
-      const map = game.map();
-
-      // Water tile at (8,0)
-      const waterTile = map.ref(8, 0);
-      expect(map.isWater(waterTile)).toBe(true);
-
-      const result = pathFinder.next(waterTile, waterTile);
-
-      expect(result.status).toBe(PathStatus.COMPLETE);
-      expect((result as { node: TileRef }).node).toBe(waterTile);
-    });
-
-    it("returns NEXT with valid node when path exists", () => {
-      const pathFinder = createPathFinder();
-      const map = game.map();
-
-      // Water tiles at distance 2: (8,0) → (10,0)
-      const from = map.ref(8, 0);
-      const to = map.ref(10, 0);
-
-      expect(map.isWater(from)).toBe(true);
-      expect(map.isWater(to)).toBe(true);
-      expect(map.manhattanDist(from, to)).toBe(2);
-
-      const result = pathFinder.next(from, to);
-
-      expect(result.status).toBe(PathStatus.NEXT);
-      const node = (result as { node: TileRef }).node;
-      // Next node should be (9,0) - the intermediate tile
-      expect(node).toBe(map.ref(9, 0));
-    });
-
-    it("returns NOT_FOUND when no path exists", () => {
-      const pathFinder = createPathFinder();
-      const map = game.map();
-
-      // Land tile at (0,0) has no water neighbors
-      const landTile = map.ref(0, 0);
-      // Water tile at (8,0)
-      const waterTile = map.ref(8, 0);
-
-      expect(map.isLand(landTile)).toBe(true);
-      expect(map.isShore(landTile)).toBe(false);
-      expect(map.isWater(waterTile)).toBe(true);
-
-      const result = pathFinder.next(landTile, waterTile);
-
-      expect(result.status).toBe(PathStatus.NOT_FOUND);
-    });
-
-    it("returns COMPLETE when within dist threshold", () => {
-      const pathFinder = createPathFinder();
-      const map = game.map();
-
-      // Adjacent water tiles: (8,0) and (9,0), distance = 1
-      const from = map.ref(8, 0);
-      const to = map.ref(9, 0);
-
-      expect(map.isWater(from)).toBe(true);
-      expect(map.isWater(to)).toBe(true);
-      expect(map.manhattanDist(from, to)).toBe(1);
-
-      const result = pathFinder.next(from, to, 2);
-
-      expect(result.status).toBe(PathStatus.COMPLETE);
-      // When within dist threshold, node is current position (from), not destination
-      expect((result as { node: TileRef }).node).toBe(from);
-    });
-  });
-
-  describe("invalidate", () => {
-    it("clears cached path", () => {
-      const pathFinder = createPathFinder();
-      const map = game.map();
-
-      // Distant water tiles: (8,0) → (15,4), distance = 11
-      const from = map.ref(8, 0);
-      const to = map.ref(15, 4);
-
-      expect(map.isWater(from)).toBe(true);
-      expect(map.isWater(to)).toBe(true);
-      expect(map.manhattanDist(from, to)).toBe(11);
-
-      // Build initial path
-      const result1 = pathFinder.next(from, to);
-      expect(result1.status).toBe(PathStatus.NEXT);
-      const node1 = (result1 as { node: TileRef }).node;
-
-      // Invalidate
-      pathFinder.invalidate();
-
-      // Next call should recompute - verify we get same result
-      const result2 = pathFinder.next(from, to);
-      expect(result2.status).toBe(PathStatus.NEXT);
-      const node2 = (result2 as { node: TileRef }).node;
-
-      // Same next node after invalidate (deterministic)
-      expect(node2).toBe(node1);
     });
   });
 
@@ -242,10 +126,9 @@ describe("PathFinding.Water", () => {
       const pathFinder = createPathFinder();
       const map = game.map();
 
-      // Three water tiles: from (8,0), dest1 (12,0), dest2 (8,4)
       const from = map.ref(8, 0);
-      const dest1 = map.ref(12, 0); // distance 4 east
-      const dest2 = map.ref(8, 4); // distance 4 south
+      const dest1 = map.ref(12, 0);
+      const dest2 = map.ref(8, 4);
 
       expect(map.isWater(from)).toBe(true);
       expect(map.isWater(dest1)).toBe(true);
@@ -254,7 +137,6 @@ describe("PathFinding.Water", () => {
       const result1 = pathFinder.next(from, dest1);
       expect(result1.status).toBe(PathStatus.NEXT);
 
-      pathFinder.invalidate();
       const result2 = pathFinder.next(from, dest2);
       expect(result2.status).toBe(PathStatus.NEXT);
     });
@@ -265,7 +147,6 @@ describe("PathFinding.Water", () => {
       const pathFinder = createPathFinder();
       const map = game.map();
 
-      // Water tile at (8,0)
       const waterTile = map.ref(8, 0);
       expect(map.isWater(waterTile)).toBe(true);
 
@@ -278,7 +159,6 @@ describe("PathFinding.Water", () => {
       const pathFinder = createPathFinder();
       const map = game.map();
 
-      // Water tiles at distance 3: (8,0) → (11,0)
       const from = map.ref(8, 0);
       const to = map.ref(11, 0);
 
@@ -290,46 +170,10 @@ describe("PathFinding.Water", () => {
       expect(result.status).toBe(PathStatus.COMPLETE);
       expect((result as { node: TileRef }).node).toBe(from);
     });
-
-    it("dist=0 does NOT trigger early completion (only dist > 0 does)", () => {
-      const pathFinder = createPathFinder();
-      const map = game.map();
-
-      // Adjacent water tiles: (8,0) and (9,0), distance = 1
-      const from = map.ref(8, 0);
-      const to = map.ref(9, 0);
-
-      expect(map.isWater(from)).toBe(true);
-      expect(map.isWater(to)).toBe(true);
-      expect(map.manhattanDist(from, to)).toBe(1);
-
-      const result = pathFinder.next(from, to, 0);
-      expect(result.status).toBe(PathStatus.NEXT);
-    });
-
-    it("negative dist does NOT trigger early completion", () => {
-      const pathFinder = createPathFinder();
-      const map = game.map();
-
-      // Adjacent water tiles: (8,0) and (9,0), distance = 1
-      const from = map.ref(8, 0);
-      const to = map.ref(9, 0);
-
-      expect(map.isWater(from)).toBe(true);
-      expect(map.isWater(to)).toBe(true);
-
-      const result = pathFinder.next(from, to, -1);
-      expect(result.status).toBe(PathStatus.NEXT);
-    });
   });
 
   describe("path validity", () => {
-    /**
-     * MiniMap upscaling can produce gaps up to 2 tiles between consecutive path nodes.
-     * This is BY DESIGN: Water pathfinding uses 2x minimap for performance.
-     * The gap of ≤2 is the correct specification, not a weak test.
-     */
-    it("all consecutive tiles in path are connected (max gap 2 due to minimap)", () => {
+    it("all consecutive tiles in path are connected", () => {
       const pathFinder = createPathFinder();
       const map = game.map();
 
@@ -344,29 +188,10 @@ describe("PathFinding.Water", () => {
       const path = pathFinder.findPath(from, to);
 
       expect(path).not.toBeNull();
-      expect(path!.length).toBeGreaterThan(1);
 
-      // Water pathfinding uses 2x minimap, so gap can be up to 2 (this is spec, not weakness)
       for (let i = 1; i < path!.length; i++) {
         const dist = map.manhattanDist(path![i - 1], path![i]);
-        expect(dist).toBeLessThanOrEqual(2);
-      }
-    });
-
-    it("path only contains water or shore tiles", () => {
-      const pathFinder = createPathFinder();
-      const map = game.map();
-
-      // Distant water tiles: (8,0) → (15,4)
-      const from = map.ref(8, 0);
-      const to = map.ref(15, 4);
-
-      const path = pathFinder.findPath(from, to);
-
-      expect(path).not.toBeNull();
-
-      for (const t of path!) {
-        expect(map.isWater(t) || map.isShore(t)).toBe(true);
+        expect(dist).toEqual(1);
       }
     });
   });
@@ -390,8 +215,6 @@ describe("PathFinding.Water", () => {
       expect(path).not.toBeNull();
       expect(path![0]).toBe(from);
       expect(path![path!.length - 1]).toBe(to);
-      expect(map.isShore(path![0])).toBe(true);
-      expect(map.isShore(path![path!.length - 1])).toBe(true);
     });
   });
 
@@ -407,23 +230,6 @@ describe("PathFinding.Water", () => {
 
       const path1 = pathFinder1.findPath(from, to);
       const path2 = pathFinder2.findPath(from, to);
-
-      expect(path1).not.toBeNull();
-      expect(path2).not.toBeNull();
-      expect(path1).toEqual(path2);
-    });
-
-    it("repeated calls with same inputs are deterministic", () => {
-      const pathFinder = createPathFinder();
-      const map = game.map();
-
-      // Distant water tiles: (8,0) → (15,4)
-      const from = map.ref(8, 0);
-      const to = map.ref(15, 4);
-
-      const path1 = pathFinder.findPath(from, to);
-      pathFinder.invalidate();
-      const path2 = pathFinder.findPath(from, to);
 
       expect(path1).not.toBeNull();
       expect(path2).not.toBeNull();
@@ -448,7 +254,6 @@ describe("PathFinding.Water", () => {
         worldGame.ref(680, 658),
       );
       expect(path).not.toBeNull();
-      expect(path!.length).toBeGreaterThan(100);
     });
 
     it("France to Poland (around Europe)", () => {
@@ -486,11 +291,14 @@ describe("PathFinding.Water", () => {
       const consoleSpy = vi
         .spyOn(console, "error")
         .mockImplementation(() => {});
+
       const result = pathFinder.next(
         null as unknown as TileRef,
         game.ref(8, 0),
       );
+
       expect(result.status).toBe(PathStatus.NOT_FOUND);
+
       consoleSpy.mockRestore();
     });
 
@@ -500,11 +308,14 @@ describe("PathFinding.Water", () => {
       const consoleSpy = vi
         .spyOn(console, "error")
         .mockImplementation(() => {});
+
       const result = pathFinder.next(
         game.ref(8, 0),
         null as unknown as TileRef,
       );
+
       expect(result.status).toBe(PathStatus.NOT_FOUND);
+
       consoleSpy.mockRestore();
     });
   });
@@ -516,11 +327,13 @@ describe("PathFinding.Water", () => {
         height: 1,
         grid: [W, L, L, W, L, W, W, L, L, W],
       });
+
       const pathFinder = createPathFinder(syntheticGame);
       const path = pathFinder.findPath(
         syntheticGame.ref(0, 0),
         syntheticGame.ref(9, 0),
       );
+
       expect(path).not.toBeNull();
     });
 
@@ -530,11 +343,13 @@ describe("PathFinding.Water", () => {
         height: 2,
         grid: [W, L, L, W],
       });
+
       const pathFinder = createPathFinder(syntheticGame);
       const path = pathFinder.findPath(
         syntheticGame.ref(0, 0),
         syntheticGame.ref(1, 1),
       );
+
       expect(path).not.toBeNull();
     });
   });

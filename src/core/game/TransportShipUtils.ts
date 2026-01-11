@@ -32,7 +32,7 @@ export function canBuildTransportShip(
 
 export function targetTransportTile(gm: Game, tile: TileRef): TileRef | null {
   const spatial = new SpatialQuery(gm);
-  return spatial.closestShoreByLand(gm.owner(tile), tile);
+  return spatial.closestShore(gm.owner(tile), tile);
 }
 
 export function bestShoreDeploymentSource(

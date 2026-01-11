@@ -1,18 +1,4 @@
-/**
- * Minimal test maps for pathfinding unit tests.
- *
- * Terrain encoding (from GameMapImpl):
- *   IS_LAND_BIT = 7 → 0x80
- *   SHORELINE_BIT = 6 → 0x40 (auto-computed from adjacency)
- *   OCEAN_BIT = 5 → 0x20
- *   MAGNITUDE_MASK = 0x1F (bits 0-4)
- *
- * Tile types:
- *   W = 0x20 (water/ocean)
- *   L = 0x80 (land)
- *
- * Note: Shoreline bit is computed for both land and water tiles adjacent to opposite type.
- */
+// Minimal test maps for pathfinding unit tests
 
 import {
   Difficulty,
@@ -23,16 +9,15 @@ import {
   GameType,
 } from "../../../src/core/game/Game";
 import { createGame as createGameImpl } from "../../../src/core/game/GameImpl";
-import { GameMapImpl, TileRef } from "../../../src/core/game/GameMap";
+import { GameMapImpl } from "../../../src/core/game/GameMap";
 import { UserSettings } from "../../../src/core/game/UserSettings";
 import { TestConfig } from "../../util/TestConfig";
 import { TestServerConfig } from "../../util/TestServerConfig";
 
-// Tile type aliases for readable grids (exported for inline use in tests)
-export const W = "W"; // Water (ocean)
+export const W = "W"; // Water
 export const L = "L"; // Land
 
-// Terrain encoding bits
+// Terrain encoding
 const WATER_BIT = 0x20;
 const LAND_BIT = 0x80;
 const SHORELINE_BIT = 6;
@@ -43,10 +28,7 @@ export type TestMapData = {
   grid: string[];
 };
 
-/**
- * Compute shoreline bit for all tiles adjacent to opposite terrain type.
- * Both land and water tiles get shoreline bit when next to the other.
- */
+// Compute shoreline bit for tiles adjacent to opposite terrain
 function computeShoreline(
   terrain: Uint8Array,
   width: number,
@@ -75,9 +57,7 @@ function computeShoreline(
   }
 }
 
-/**
- * 5x5 map: simple island
- */
+// 5x5 simple island
 export function createIslandMap(): TestMapData {
   // prettier-ignore
   const grid = [
@@ -90,10 +70,7 @@ export function createIslandMap(): TestMapData {
   return { width: 5, height: 5, grid };
 }
 
-/**
- * Create Game from test map data.
- * Computes shoreline bits for tiles adjacent to opposite terrain type.
- */
+// Create Game from test map data (computes shoreline bits)
 export function createGame(data: TestMapData): Game {
   const { width, height, grid } = data;
 
@@ -180,9 +157,7 @@ export function createGame(data: TestMapData): Game {
   return createGameImpl([], [], gameMap, miniGameMap, config);
 }
 
-/**
- * Create GameMapImpl from test map data (for tests that only need map).
- */
+// Create GameMapImpl from test map data (for map-only tests)
 export function createGameMap(data: TestMapData): GameMapImpl {
   const { width, height, grid } = data;
 
@@ -201,11 +176,4 @@ export function createGameMap(data: TestMapData): GameMapImpl {
   computeShoreline(terrain, width, height);
 
   return new GameMapImpl(width, height, terrain, numLand);
-}
-
-/**
- * Helper: get TileRef from (x, y) on a map.
- */
-export function ref(map: GameMapImpl, x: number, y: number): TileRef {
-  return map.ref(x, y);
 }

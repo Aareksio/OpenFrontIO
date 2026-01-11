@@ -42,7 +42,7 @@ export class SpatialQuery {
    * Find closest shore tile by land BFS.
    * Works for both players and terra nullius.
    */
-  closestShoreByLand(
+  closestShore(
     owner: Owner,
     tile: TileRef,
     maxDist: number = 50,
@@ -68,6 +68,9 @@ export class SpatialQuery {
 
     const gm = this.game;
     const player = owner as Player;
+
+    // Target must be water or shore (land adjacent to water)
+    if (!gm.isWater(target) && !gm.isShore(target)) return null;
 
     const targetComponent = gm.getWaterComponent(target);
     if (targetComponent === null) return null;

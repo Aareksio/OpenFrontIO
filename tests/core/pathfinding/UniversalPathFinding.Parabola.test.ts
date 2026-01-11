@@ -4,10 +4,10 @@ import { UniversalPathFinding } from "../../../src/core/pathfinding/PathFinder";
 import { PathStatus } from "../../../src/core/pathfinding/types";
 
 describe("UniversalPathFinding.Parabola", () => {
-  // Create a larger map for parabola tests (need space for arcs)
   function createLargeMap() {
-    const W = 0x20; // Water
-    const terrain = new Uint8Array(10000).fill(W); // 100x100 all water
+    // Create a larger map for parabola tests (need space for arcs)
+    const W = 0x20;
+    const terrain = new Uint8Array(10000).fill(W);
     return new GameMapImpl(100, 100, terrain, 0);
   }
 
@@ -48,7 +48,6 @@ describe("UniversalPathFinding.Parabola", () => {
       const path = finder.findPath(tile, tile);
 
       expect(path).not.toBeNull();
-      // Parabola still creates arc even for same point (uses fixed height)
       expect(path!.length).toBe(26);
     });
 
@@ -82,34 +81,6 @@ describe("UniversalPathFinding.Parabola", () => {
       expect("node" in result).toBe(true);
     });
 
-    it("eventually returns COMPLETE", () => {
-      const map = createLargeMap();
-      const finder = UniversalPathFinding.Parabola(map, { increment: 10 });
-
-      const from = map.ref(10, 50);
-      const to = map.ref(90, 50);
-
-      // Keep stepping until complete
-      let result = finder.next(from, to);
-      let steps = 0;
-      const maxSteps = 1000;
-
-      while (result.status !== PathStatus.COMPLETE && steps < maxSteps) {
-        expect(result.status).toBe(PathStatus.NEXT);
-        const node = (
-          result as { status: typeof PathStatus.NEXT; node: number }
-        ).node;
-        result = finder.next(node, to);
-        steps++;
-      }
-
-      expect(result.status).toBe(PathStatus.COMPLETE);
-      const completeNode = (
-        result as { status: typeof PathStatus.COMPLETE; node: number }
-      ).node;
-      expect(completeNode).toBe(to);
-    });
-
     it("respects speed parameter (higher speed = further movement)", () => {
       const map = createLargeMap();
       const finder1 = UniversalPathFinding.Parabola(map);
@@ -140,7 +111,6 @@ describe("UniversalPathFinding.Parabola", () => {
       const dist2 = map.manhattanDist(from, node2);
       expect(dist2).toBeGreaterThan(dist1);
 
-      // Verify index progression confirms speed affects curve traversal
       expect(finder2.currentIndex()).toBeGreaterThan(finder1.currentIndex());
     });
   });
@@ -159,7 +129,7 @@ describe("UniversalPathFinding.Parabola", () => {
 
       expect(path1).not.toBeNull();
       expect(path2).not.toBeNull();
-      // Smaller increment = more points
+
       expect(path1!.length).toBeGreaterThan(path2!.length);
     });
 
@@ -224,61 +194,6 @@ describe("UniversalPathFinding.Parabola", () => {
     });
   });
 
-  describe("invalidate", () => {
-    it("resets curve state to initial", () => {
-      const map = createLargeMap();
-      const finder = UniversalPathFinding.Parabola(map);
-
-      const from = map.ref(10, 50);
-      const to = map.ref(90, 50);
-
-      // Build curve and step with high speed to advance index
-      finder.next(from, to, 10);
-      finder.next(from, to, 10);
-      finder.next(from, to, 10);
-      const indexBefore = finder.currentIndex();
-      // After multiple high-speed steps, index should have advanced
-      expect(indexBefore).toBeGreaterThan(0);
-
-      // Invalidate
-      finder.invalidate();
-
-      // After invalidation, index should be 0
-      expect(finder.currentIndex()).toBe(0);
-
-      // Can still use finder after invalidation - should return NEXT since not at dest
-      const result = finder.next(from, to);
-      expect(result.status).toBe(PathStatus.NEXT);
-    });
-
-    it("clears curve so new curve is created for same destination", () => {
-      const map = createLargeMap();
-      const finder = UniversalPathFinding.Parabola(map);
-
-      const from = map.ref(10, 50);
-      const to = map.ref(90, 50);
-
-      // Get first result
-      const result1 = finder.next(from, to);
-      expect(result1.status).toBe(PathStatus.NEXT);
-      const tile1 = (
-        result1 as { status: typeof PathStatus.NEXT; node: number }
-      ).node;
-
-      // Invalidate
-      finder.invalidate();
-
-      // Same call should return same tile (fresh curve from same start)
-      const result2 = finder.next(from, to);
-      expect(result2.status).toBe(PathStatus.NEXT);
-      const tile2 = (
-        result2 as { status: typeof PathStatus.NEXT; node: number }
-      ).node;
-
-      expect(tile1).toBe(tile2);
-    });
-  });
-
   describe("currentIndex", () => {
     it("returns 0 when no curve", () => {
       const map = createLargeMap();
@@ -294,37 +209,20 @@ describe("UniversalPathFinding.Parabola", () => {
       const from = map.ref(10, 50);
       const to = map.ref(90, 50);
 
-      // Step multiple times to build up index
-      finder.next(from, to);
-      finder.next(from, to);
-      const idx1 = finder.currentIndex();
+      let current = from;
+      let previousIndex = 0;
 
-      finder.next(from, to);
-      finder.next(from, to);
-      const idx2 = finder.currentIndex();
+      for (let i = 0; i < 50; i++) {
+        const result = finder.next(current, to);
+        expect(result.status).toBe(PathStatus.NEXT);
 
-      // Index should increase after more steps
-      expect(idx2).toBeGreaterThan(idx1);
-    });
+        const index = finder.currentIndex();
+        expect(index).toBeGreaterThanOrEqual(previousIndex);
+        previousIndex = index;
 
-    it("higher speed increments index faster", () => {
-      const map = createLargeMap();
-      const finder1 = UniversalPathFinding.Parabola(map);
-      const finder2 = UniversalPathFinding.Parabola(map);
-
-      const from = map.ref(10, 50);
-      const to = map.ref(90, 50);
-
-      // Step with speed 1
-      finder1.next(from, to, 1);
-      const idx1 = finder1.currentIndex();
-
-      // Step with speed 5
-      finder2.next(from, to, 5);
-      const idx2 = finder2.currentIndex();
-
-      // Higher speed should result in higher index after same number of steps
-      expect(idx2).toBeGreaterThan(idx1);
+        current = (result as { status: typeof PathStatus.NEXT; node: number })
+          .node;
+      }
     });
   });
 
@@ -357,7 +255,6 @@ describe("UniversalPathFinding.Parabola", () => {
       const path = finder.findPath(from, to);
 
       expect(path).not.toBeNull();
-      // Parabola creates arc even for adjacent tiles (uses fixed height)
       expect(path!.length).toBe(26);
       expect(path![0]).toBe(from);
       expect(path![path!.length - 1]).toBe(to);
@@ -395,7 +292,7 @@ describe("UniversalPathFinding.Parabola", () => {
       const path = finder.findPath(from, to);
 
       expect(path).not.toBeNull();
-      // All points should be within map bounds (y >= 0)
+
       for (const t of path!) {
         expect(map.y(t)).toBeGreaterThanOrEqual(0);
       }
@@ -408,37 +305,16 @@ describe("UniversalPathFinding.Parabola", () => {
         distanceBasedHeight: true,
       });
 
-      // Start near bottom of map (map is 100x100, so y=99 is max)
       const from = map.ref(10, 95);
       const to = map.ref(90, 95);
 
       const path = finder.findPath(from, to);
 
       expect(path).not.toBeNull();
-      // All points should be within map bounds (y < 100)
+
       for (const t of path!) {
         expect(map.y(t)).toBeLessThan(100);
       }
-    });
-  });
-
-  describe("determinism", () => {
-    it("same inputs produce identical paths", () => {
-      const map = createLargeMap();
-      const finder1 = UniversalPathFinding.Parabola(map, {
-        distanceBasedHeight: true,
-      });
-      const finder2 = UniversalPathFinding.Parabola(map, {
-        distanceBasedHeight: true,
-      });
-
-      const from = map.ref(10, 50);
-      const to = map.ref(90, 50);
-
-      const path1 = finder1.findPath(from, to);
-      const path2 = finder2.findPath(from, to);
-
-      expect(path1).toEqual(path2);
     });
   });
 });

@@ -39,7 +39,7 @@ export class PathFinding {
     const hpa = game.miniWaterHPA();
     const graph = game.miniWaterGraph();
 
-    if (!hpa || !graph) {
+    if (!hpa || !graph || graph.nodeCount < 100) {
       return PathFinding.WaterFallback(game);
     }
 

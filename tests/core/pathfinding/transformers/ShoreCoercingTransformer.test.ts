@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ShoreCoercingTransformer } from "../../../../src/core/pathfinding/transformers/ShoreCoercingTransformer";
 import { PathFinder } from "../../../../src/core/pathfinding/types";
-import { createGameMap, createIslandMap, L, ref, W } from "../_fixtures";
+import { createGameMap, createIslandMap, L, W } from "../_fixtures";
 
 describe("ShoreCoercingTransformer", () => {
   // Mock PathFinder that records calls and returns configurable path
@@ -14,9 +14,7 @@ describe("ShoreCoercingTransformer", () => {
       returnPath: undefined as number[] | null | undefined,
       findPath(from: number | number[], to: number): number[] | null {
         mock.calls.push({ from, to });
-        // If returnPath explicitly set (including null), use it
         if (mock.returnPath !== undefined) return mock.returnPath;
-        // Default: return straight path from first source to dest
         const start = Array.isArray(from) ? from[0] : from;
         return [start, to];
       },
@@ -31,8 +29,8 @@ describe("ShoreCoercingTransformer", () => {
       const inner = createMockPathFinder();
       const transformer = new ShoreCoercingTransformer(inner, map);
 
-      const water1 = ref(map, 0, 0);
-      const water2 = ref(map, 4, 0);
+      const water1 = map.ref(0, 0);
+      const water2 = map.ref(4, 0);
       inner.returnPath = [water1, water2];
 
       const result = transformer.findPath(water1, water2);
@@ -49,12 +47,9 @@ describe("ShoreCoercingTransformer", () => {
       const inner = createMockPathFinder();
       const transformer = new ShoreCoercingTransformer(inner, map);
 
-      const shore = ref(map, 1, 1); // shore tile
-      const water = ref(map, 4, 4); // water tile
-
-      // Shore (1,1) has water neighbors at (1,0) and (0,1); first is (1,0)
-      const shoreWaterNeighbor = ref(map, 1, 0);
-      inner.returnPath = [shoreWaterNeighbor, water];
+      const shore = map.ref(1, 1);
+      const water = map.ref(4, 4);
+      const shoreWaterNeighbor = map.ref(1, 0);
 
       const result = transformer.findPath(shore, water);
 
@@ -69,16 +64,15 @@ describe("ShoreCoercingTransformer", () => {
       const inner = createMockPathFinder();
       const transformer = new ShoreCoercingTransformer(inner, map);
 
-      const water = ref(map, 0, 0); // water tile
-      const shore = ref(map, 1, 1); // shore tile
-
-      // Shore (1,1) → first water neighbor is (1,0)
-      const shoreWaterNeighbor = ref(map, 1, 0);
-      inner.returnPath = [water, shoreWaterNeighbor];
+      const water = map.ref(0, 0);
+      const shore = map.ref(1, 1);
+      const shoreWaterNeighbor = map.ref(1, 0);
 
       const result = transformer.findPath(water, shore);
 
       expect(result).not.toBeNull();
+      expect(result![0]).toBe(water);
+      expect(result![result!.length - 2]).toBe(shoreWaterNeighbor);
       expect(result![result!.length - 1]).toBe(shore);
     });
 
@@ -88,18 +82,17 @@ describe("ShoreCoercingTransformer", () => {
       const inner = createMockPathFinder();
       const transformer = new ShoreCoercingTransformer(inner, map);
 
-      const shore1 = ref(map, 1, 1); // shore tile
-      const shore2 = ref(map, 3, 3); // another shore tile
-
-      // Shore (1,1) → first water is (1,0); shore (3,3) → first water is (3,4)
-      const water1 = ref(map, 1, 0);
-      const water2 = ref(map, 3, 4);
-      inner.returnPath = [water1, water2];
+      const shore1 = map.ref(1, 1);
+      const shore1WaterNeighbor = map.ref(1, 0);
+      const shore2 = map.ref(3, 3);
+      const shore2WaterNeighbor = map.ref(3, 4);
 
       const result = transformer.findPath(shore1, shore2);
 
       expect(result).not.toBeNull();
       expect(result![0]).toBe(shore1);
+      expect(result![1]).toBe(shore1WaterNeighbor);
+      expect(result![result!.length - 2]).toBe(shore2WaterNeighbor);
       expect(result![result!.length - 1]).toBe(shore2);
     });
 
@@ -110,8 +103,8 @@ describe("ShoreCoercingTransformer", () => {
       const transformer = new ShoreCoercingTransformer(inner, map);
 
       // Center land tile (2,2) has no water neighbors
-      const land = ref(map, 2, 2);
-      const water = ref(map, 0, 0);
+      const land = map.ref(2, 2);
+      const water = map.ref(0, 0);
 
       const result = transformer.findPath(land, water);
 
@@ -125,8 +118,9 @@ describe("ShoreCoercingTransformer", () => {
       const inner = createMockPathFinder();
       const transformer = new ShoreCoercingTransformer(inner, map);
 
-      const water = ref(map, 0, 0);
-      const land = ref(map, 2, 2); // center land, no water neighbor
+      // Center land tile (2,2) has no water neighbors
+      const land = map.ref(2, 2);
+      const water = map.ref(0, 0);
 
       const result = transformer.findPath(water, land);
 
@@ -138,10 +132,10 @@ describe("ShoreCoercingTransformer", () => {
       const mapData = createIslandMap();
       const map = createGameMap(mapData);
       const inner = createMockPathFinder();
-      inner.returnPath = null;
       const transformer = new ShoreCoercingTransformer(inner, map);
 
-      const result = transformer.findPath(ref(map, 0, 0), ref(map, 4, 4));
+      inner.returnPath = null;
+      const result = transformer.findPath(map.ref(0, 0), map.ref(4, 4));
 
       expect(result).toBeNull();
     });
@@ -150,10 +144,10 @@ describe("ShoreCoercingTransformer", () => {
       const mapData = createIslandMap();
       const map = createGameMap(mapData);
       const inner = createMockPathFinder();
-      inner.returnPath = [];
       const transformer = new ShoreCoercingTransformer(inner, map);
 
-      const result = transformer.findPath(ref(map, 0, 0), ref(map, 4, 4));
+      inner.returnPath = [];
+      const result = transformer.findPath(map.ref(0, 0), map.ref(4, 4));
 
       expect(result).toBeNull();
     });
@@ -164,21 +158,23 @@ describe("ShoreCoercingTransformer", () => {
       const inner = createMockPathFinder();
       const transformer = new ShoreCoercingTransformer(inner, map);
 
-      const water1 = ref(map, 0, 0);
-      const shore = ref(map, 1, 1);
-      const land = ref(map, 2, 2); // no water neighbor - should be filtered
-      const waterDest = ref(map, 4, 4);
+      const waterSrc = map.ref(0, 0);
+      const shoreSrc = map.ref(1, 1);
+      const landSrc = map.ref(2, 2);
+      const waterDest = map.ref(4, 4);
 
-      inner.returnPath = [water1, waterDest];
+      inner.returnPath = [waterSrc, waterDest];
 
-      const result = transformer.findPath([water1, shore, land], waterDest);
+      const result = transformer.findPath(
+        [waterSrc, shoreSrc, landSrc],
+        waterDest,
+      );
 
       expect(result).not.toBeNull();
-      // Inner should receive only valid sources
       expect(inner.calls).toHaveLength(1);
+
       const fromArg = inner.calls[0].from;
       expect(Array.isArray(fromArg)).toBe(true);
-      // Should have 2 valid sources (water1 and coerced shore)
       expect((fromArg as number[]).length).toBe(2);
     });
 
@@ -188,9 +184,9 @@ describe("ShoreCoercingTransformer", () => {
       const inner = createMockPathFinder();
       const transformer = new ShoreCoercingTransformer(inner, map);
 
-      const land = ref(map, 2, 2); // no water neighbor
+      const land = map.ref(2, 2);
 
-      const result = transformer.findPath([land], ref(map, 0, 0));
+      const result = transformer.findPath([land], map.ref(0, 0));
 
       expect(result).toBeNull();
       expect(inner.calls).toHaveLength(0);
@@ -199,12 +195,6 @@ describe("ShoreCoercingTransformer", () => {
 
   describe("determinism", () => {
     it("shore with multiple water neighbors selects consistently", () => {
-      // 5x5 map: channel between land masses
-      // L L W W W   (y=0)
-      // L S W W W   (y=1)
-      // S S W S S   (y=2)  ← (1,2) has 2 water neighbors: (1,3) and (2,2)
-      // W W W S L   (y=3)
-      // W W W L L   (y=4)
       // prettier-ignore
       const map = createGameMap({
         width: 5, height: 5, grid: [
@@ -215,18 +205,16 @@ describe("ShoreCoercingTransformer", () => {
           W, W, W, L, L,
         ],
       });
-      const shoreWithMultipleWater = ref(map, 1, 2);
-      // First water neighbor (deterministic order) is (1,3)
-      const expectedWaterNeighbor = ref(map, 1, 3);
+
+      const shoreWithMultipleWater = map.ref(1, 2);
+      const expectedWaterNeighbor = map.ref(1, 3);
 
       const inner1 = createMockPathFinder();
       const inner2 = createMockPathFinder();
       const transformer1 = new ShoreCoercingTransformer(inner1, map);
       const transformer2 = new ShoreCoercingTransformer(inner2, map);
 
-      const waterDest = ref(map, 2, 4); // water tile in channel
-      inner1.returnPath = [waterDest];
-      inner2.returnPath = [waterDest];
+      const waterDest = map.ref(2, 4);
 
       transformer1.findPath(shoreWithMultipleWater, waterDest);
       transformer2.findPath(shoreWithMultipleWater, waterDest);
@@ -242,16 +230,14 @@ describe("ShoreCoercingTransformer", () => {
       const inner = createMockPathFinder();
       const transformer = new ShoreCoercingTransformer(inner, map);
 
-      // Shore (1,1) has 2 water neighbors: (1,0) and (0,1); first is (1,0)
-      const cornerShore = ref(map, 1, 1);
-      const waterNeighbor = ref(map, 1, 0);
-      const waterDest = ref(map, 4, 4);
+      const cornerShore = map.ref(1, 1);
+      const waterNeighbor = map.ref(1, 0);
+      const waterDest = map.ref(4, 4);
 
       inner.returnPath = [waterNeighbor, waterDest];
 
       const result = transformer.findPath(cornerShore, waterDest);
 
-      // Exact expected path: [cornerShore, waterNeighbor, waterDest]
       expect(result).not.toBeNull();
       expect(result).toEqual([cornerShore, waterNeighbor, waterDest]);
     });
