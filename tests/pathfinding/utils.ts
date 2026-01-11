@@ -17,12 +17,8 @@ import {
   MapManifest,
 } from "../../src/core/game/TerrainMapLoader";
 import { UserSettings } from "../../src/core/game/UserSettings";
-import { AStar } from "../../src/core/pathfinding/algorithms/AStar";
-import {
-  GameMapAStar,
-  WaterGridAdapter,
-} from "../../src/core/pathfinding/algorithms/AStarWaterAdapter";
-import { GameMapHPAStar } from "../../src/core/pathfinding/algorithms/hpa/AStarHPA";
+import { AStarWater } from "../../src/core/pathfinding/algorithms/AStar.Water";
+import { AStarWaterHierarchical } from "../../src/core/pathfinding/algorithms/AStar.WaterHierarchical";
 import { PathFinding } from "../../src/core/pathfinding/PathFinder";
 import { PathFinderBuilder } from "../../src/core/pathfinding/PathFinderBuilder";
 import { StepperConfig } from "../../src/core/pathfinding/PathFinderStepper";
@@ -75,31 +71,30 @@ export function getAdapter(
 ): SteppingPathFinder<TileRef> {
   switch (name) {
     case "a.baseline": {
-      return PathFinderBuilder.create(new GameMapAStar(game.miniMap()))
-        .wrap((pf) => new MiniMapTransformer(pf, game))
+      return PathFinderBuilder.create(new AStarWater(game.miniMap()))
+        .wrap((pf) => new MiniMapTransformer(pf, game, game.miniMap()))
         .buildWithStepper(tileStepperConfig(game));
     }
     case "a.generic": {
-      const miniMap = game.miniMap();
-      const adapter = new WaterGridAdapter(miniMap);
-      return PathFinderBuilder.create(new AStar({ adapter }))
-        .wrap((pf) => new MiniMapTransformer(pf, game))
+      // Same as baseline - uses AStarWater on minimap
+      return PathFinderBuilder.create(new AStarWater(game.miniMap()))
+        .wrap((pf) => new MiniMapTransformer(pf, game, game.miniMap()))
         .buildWithStepper(tileStepperConfig(game));
     }
     case "a.full": {
       return PathFinderBuilder.create(
-        new GameMapAStar(game.map()),
+        new AStarWater(game.map()),
       ).buildWithStepper(tileStepperConfig(game));
     }
     case "hpa": {
-      // Recreate GameMapHPAStar without cache, this approach was chosen
+      // Recreate AStarWaterHierarchical without cache, this approach was chosen
       // over adding cache toggles to the existing game instance
       // to avoid adding side effect from benchmark to the game
       const graph = game.miniWaterGraph();
       if (!graph) {
         throw new Error("miniWaterGraph not available");
       }
-      const hpa = new GameMapHPAStar(game.miniMap(), graph, {
+      const hpa = new AStarWaterHierarchical(game.miniMap(), graph, {
         cachePaths: false,
       });
       (game as any)._miniWaterHPA = hpa;

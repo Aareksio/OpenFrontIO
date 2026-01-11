@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { Game } from "../../../../src/core/game/Game.js";
-import { GameMapHPAStar } from "../../../../src/core/pathfinding/algorithms/hpa/AStarHPA.js";
+import { AStarWaterHierarchical } from "../../../../src/core/pathfinding/algorithms/AStar.WaterHierarchical.js";
 import { setupFromPath } from "../../utils.js";
 
 // Available comparison adapters
@@ -16,7 +16,7 @@ export interface MapInfo {
 
 export interface MapCache {
   game: Game;
-  hpaStar: GameMapHPAStar;
+  hpaStar: AStarWaterHierarchical;
 }
 
 const cache = new Map<string, MapCache>();
@@ -125,8 +125,8 @@ export async function loadMap(mapName: string): Promise<MapCache> {
     throw new Error(`No water graph available for map: ${mapName}`);
   }
 
-  // Initialize GameMapHPAStar with minimap and graph
-  const hpaStar = new GameMapHPAStar(game.miniMap(), graph, {
+  // Initialize AStarWaterHierarchical with minimap and graph
+  const hpaStar = new AStarWaterHierarchical(game.miniMap(), graph, {
     cachePaths: config.cachePaths,
   });
 
