@@ -1,23 +1,22 @@
 import { Game } from "../game/Game";
 import { GameMap, TileRef } from "../game/GameMap";
 import { TrainStation } from "../game/TrainStation";
-import { AirPathFinder } from "./AirPathFinder";
 import { GenericAStar } from "./algorithms/AStar";
 import { RailAdapter } from "./algorithms/AStarRailAdapter";
-import { StationGraphAdapter } from "./algorithms/AStarStationAdapter";
 import { GameMapAStar } from "./algorithms/AStarWaterAdapter";
+import { AirPathFinder } from "./PathFinder.Air";
 import {
   ParabolaOptions,
   ParabolaUniversalPathFinder,
-} from "./ParabolaPathFinder";
+} from "./PathFinder.Parabola";
+import { StationPathFinder } from "./PathFinder.Station";
 import { PathFinderBuilder } from "./PathFinderBuilder";
+import { StepperConfig } from "./PathFinderStepper";
 import { BresenhamSmoothingTransformer } from "./smoothing/BresenhamPathSmoother";
-import { StationPathFinder } from "./StationPathFinder";
-import { TilePathFinder } from "./TilePathFinder";
 import { ComponentCheckTransformer } from "./transformers/ComponentCheckTransformer";
 import { MiniMapTransformer } from "./transformers/MiniMapTransformer";
 import { ShoreCoercingTransformer } from "./transformers/ShoreCoercingTransformer";
-import { SteppingPathFinder } from "./types";
+import { PathStatus, SteppingPathFinder } from "./types";
 
 /**
  * Pathfinders that work with GameMap - usable in both simulation and UI layers
@@ -36,56 +35,72 @@ export class UniversalPathFinding {
  */
 export class PathFinding {
   static Water(game: Game): SteppingPathFinder<TileRef> {
-    const hpa = game.miniWaterHPA();
+    const pf = game.miniWaterHPA();
     const graph = game.miniWaterGraph();
 
-    if (!hpa || !graph || graph.nodeCount < 100) {
-      return PathFinding.WaterFallback(game);
+    if (!pf || !graph || graph.nodeCount < 100) {
+      return PathFinding.WaterSimple(game);
     }
 
     const miniMap = game.miniMap();
-    const finder = PathFinderBuilder.create(hpa)
-      .wrap(
-        (pf) =>
-          new ComponentCheckTransformer(pf, (t) => graph.getComponentId(t)),
-      )
+    const componentCheckFn = (t: TileRef) => graph.getComponentId(t);
+
+    return PathFinderBuilder.create(pf)
+      .wrap((pf) => new ComponentCheckTransformer(pf, componentCheckFn))
       .wrap((pf) => new BresenhamSmoothingTransformer(pf, miniMap))
       .wrap((pf) => new ShoreCoercingTransformer(pf, miniMap))
-      .wrap((pf) => new MiniMapTransformer(pf, game))
-      .build();
-
-    return new TilePathFinder(game, finder);
+      .wrap((pf) => new MiniMapTransformer(pf, game.map(), miniMap))
+      .buildWithStepper(tileStepperConfig(game));
   }
 
-  static WaterFallback(game: Game): SteppingPathFinder<TileRef> {
+  static WaterSimple(game: Game): SteppingPathFinder<TileRef> {
     const miniMap = game.miniMap();
     const pf = new GameMapAStar(miniMap);
-    const finder = PathFinderBuilder.create(pf)
-      .wrap((pf) => new ShoreCoercingTransformer(pf, miniMap))
-      .wrap((pf) => new MiniMapTransformer(pf, game))
-      .build();
 
-    return new TilePathFinder(game, finder);
+    return PathFinderBuilder.create(pf)
+      .wrap((pf) => new ShoreCoercingTransformer(pf, miniMap))
+      .wrap((pf) => new MiniMapTransformer(pf, game.map(), miniMap))
+      .buildWithStepper(tileStepperConfig(game));
   }
 
   static Rail(game: Game): SteppingPathFinder<TileRef> {
     const miniMap = game.miniMap();
     const adapter = new RailAdapter(miniMap);
     const pf = new GenericAStar({ adapter });
-    const finder = PathFinderBuilder.create(pf)
-      .wrap((pf) => new MiniMapTransformer(pf, game))
-      .build();
 
-    return new TilePathFinder(game, finder);
+    return PathFinderBuilder.create(pf)
+      .wrap((pf) => new MiniMapTransformer(pf, game.map(), miniMap))
+      .buildWithStepper(tileStepperConfig(game));
   }
 
   static Stations(game: Game): SteppingPathFinder<TrainStation> {
-    const adapter = new StationGraphAdapter(game);
-    const pf = new GenericAStar({ adapter });
-    return new StationPathFinder(game, pf);
+    const pf = new StationPathFinder(game);
+
+    return PathFinderBuilder.create(pf).buildWithStepper({
+      equals: (a, b) => a.id === b.id,
+      distance: (a, b) => game.manhattanDist(a.tile(), b.tile()),
+    });
   }
 
   static Air(game: Game): SteppingPathFinder<TileRef> {
-    return new AirPathFinder(game);
+    const pf = new AirPathFinder(game);
+
+    return PathFinderBuilder.create(pf).buildWithStepper({
+      equals: (a, b) => a === b,
+    });
   }
+}
+
+function tileStepperConfig(game: Game): StepperConfig<TileRef> {
+  return {
+    equals: (a, b) => a === b,
+    distance: (a, b) => game.manhattanDist(a, b),
+    preCheck: (from, to) =>
+      typeof from !== "number" ||
+      typeof to !== "number" ||
+      !game.isValidRef(from) ||
+      !game.isValidRef(to)
+        ? { status: PathStatus.NOT_FOUND }
+        : null,
+  };
 }

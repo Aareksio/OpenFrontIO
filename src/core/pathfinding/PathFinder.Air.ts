@@ -1,15 +1,13 @@
 import { Game } from "../game/Game";
 import { TileRef } from "../game/GameMap";
 import { PseudoRandom } from "../PseudoRandom";
-import { PathResult, PathStatus, SteppingPathFinder } from "./types";
+import { PathFinder } from "./types";
 
-export class AirPathFinder implements SteppingPathFinder<TileRef> {
-  private random: PseudoRandom;
+export class AirPathFinder implements PathFinder<TileRef> {
   private seed: number;
 
   constructor(private game: Game) {
     this.seed = game.ticks();
-    this.random = new PseudoRandom(this.seed);
   }
 
   findPath(from: TileRef | TileRef[], to: TileRef): TileRef[] | null {
@@ -21,40 +19,28 @@ export class AirPathFinder implements SteppingPathFinder<TileRef> {
     const path: TileRef[] = [from];
     let current = from;
 
-    while (true) {
-      const result = this.computeNext(current, to, random);
-
-      if (result.status === PathStatus.COMPLETE) {
-        break;
-      }
-
-      if (result.status === PathStatus.NEXT) {
-        current = result.node;
-        path.push(current);
-      }
+    while (current !== to) {
+      const next = this.computeNext(current, to, random);
+      if (next === current) break; // Prevent infinite loop if something breaks
+      current = next;
+      path.push(current);
     }
 
     return path;
   }
 
-  next(from: TileRef, to: TileRef, _dist?: number): PathResult<TileRef> {
-    return this.computeNext(from, to, this.random);
-  }
-
-  invalidate(): void {}
-
   private computeNext(
     from: TileRef,
     to: TileRef,
     random: PseudoRandom,
-  ): PathResult<TileRef> {
+  ): TileRef {
     const x = this.game.x(from);
     const y = this.game.y(from);
     const dstX = this.game.x(to);
     const dstY = this.game.y(to);
 
     if (x === dstX && y === dstY) {
-      return { status: PathStatus.COMPLETE, node: to };
+      return to;
     }
 
     let nextX = x;
@@ -67,10 +53,6 @@ export class AirPathFinder implements SteppingPathFinder<TileRef> {
       nextY += y < dstY ? 1 : -1;
     }
 
-    if (nextX === x && nextY === y) {
-      return { status: PathStatus.COMPLETE, node: to };
-    }
-
-    return { status: PathStatus.NEXT, node: this.game.ref(nextX, nextY) };
+    return this.game.ref(nextX, nextY);
   }
 }

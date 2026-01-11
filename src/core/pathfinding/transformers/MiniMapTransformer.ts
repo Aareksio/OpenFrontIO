@@ -1,30 +1,29 @@
-// Minimap transformer with coordinate conversion and path upscaling
-
-import { Cell, Game } from "../../game/Game";
-import { TileRef } from "../../game/GameMap";
+import { Cell } from "../../game/Game";
+import { GameMap, TileRef } from "../../game/GameMap";
 import { PathFinder } from "../types";
 
 export class MiniMapTransformer implements PathFinder<number> {
   constructor(
     private inner: PathFinder<number>,
-    private game: Game,
+    private map: GameMap,
+    private miniMap: GameMap,
   ) {}
 
   findPath(from: TileRef | TileRef[], to: TileRef): TileRef[] | null {
-    const gameMap = this.game.map();
-    const miniMap = this.game.miniMap();
-
     // Convert game coords → minimap coords (supports multi-source)
     const fromArray = Array.isArray(from) ? from : [from];
     const miniFromArray = fromArray.map((f) =>
-      miniMap.ref(Math.floor(gameMap.x(f) / 2), Math.floor(gameMap.y(f) / 2)),
+      this.miniMap.ref(
+        Math.floor(this.map.x(f) / 2),
+        Math.floor(this.map.y(f) / 2),
+      ),
     );
     const miniFrom =
       miniFromArray.length === 1 ? miniFromArray[0] : miniFromArray;
 
-    const miniTo = miniMap.ref(
-      Math.floor(gameMap.x(to) / 2),
-      Math.floor(gameMap.y(to) / 2),
+    const miniTo = this.miniMap.ref(
+      Math.floor(this.map.x(to) / 2),
+      Math.floor(this.map.y(to) / 2),
     );
 
     // Search on minimap
@@ -35,10 +34,9 @@ export class MiniMapTransformer implements PathFinder<number> {
 
     // Convert minimap TileRefs → Cells
     const cellPath = path.map(
-      (ref) => new Cell(miniMap.x(ref), miniMap.y(ref)),
+      (ref) => new Cell(this.miniMap.x(ref), this.miniMap.y(ref)),
     );
 
-    // Upscale and fix extremes
     // For multi-source, find closest source to path start
     const upscaledPath = this.upscalePath(cellPath);
     let cellFrom: Cell | undefined;
@@ -47,8 +45,8 @@ export class MiniMapTransformer implements PathFinder<number> {
         const pathStart = upscaledPath[0];
         let minDist = Infinity;
         for (const f of from) {
-          const fx = gameMap.x(f);
-          const fy = gameMap.y(f);
+          const fx = this.map.x(f);
+          const fy = this.map.y(f);
           const dist = Math.abs(fx - pathStart.x) + Math.abs(fy - pathStart.y);
           if (dist < minDist) {
             minDist = dist;
@@ -57,13 +55,12 @@ export class MiniMapTransformer implements PathFinder<number> {
         }
       }
     } else {
-      cellFrom = new Cell(gameMap.x(from), gameMap.y(from));
+      cellFrom = new Cell(this.map.x(from), this.map.y(from));
     }
-    const cellTo = new Cell(gameMap.x(to), gameMap.y(to));
+    const cellTo = new Cell(this.map.x(to), this.map.y(to));
     const upscaled = this.fixExtremes(upscaledPath, cellTo, cellFrom);
 
-    // Convert back to game TileRefs
-    return upscaled.map((c) => gameMap.ref(c.x, c.y));
+    return upscaled.map((c) => this.map.ref(c.x, c.y));
   }
 
   private upscalePath(path: Cell[], scaleFactor: number = 2): Cell[] {

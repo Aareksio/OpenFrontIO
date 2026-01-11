@@ -24,9 +24,13 @@ import {
 } from "../../src/core/pathfinding/algorithms/AStarWaterAdapter";
 import { GameMapHPAStar } from "../../src/core/pathfinding/algorithms/hpa/AStarHPA";
 import { PathFinding } from "../../src/core/pathfinding/PathFinder";
-import { TilePathFinder } from "../../src/core/pathfinding/TilePathFinder";
+import { PathFinderBuilder } from "../../src/core/pathfinding/PathFinderBuilder";
+import { StepperConfig } from "../../src/core/pathfinding/PathFinderStepper";
 import { MiniMapTransformer } from "../../src/core/pathfinding/transformers/MiniMapTransformer";
-import { SteppingPathFinder } from "../../src/core/pathfinding/types";
+import {
+  PathStatus,
+  SteppingPathFinder,
+} from "../../src/core/pathfinding/types";
 import { GameConfig } from "../../src/core/Schemas";
 import { TestConfig } from "../util/TestConfig";
 
@@ -51,27 +55,41 @@ export type BenchmarkSummary = {
   avgTime: number;
 };
 
+function tileStepperConfig(game: Game): StepperConfig<TileRef> {
+  return {
+    equals: (a, b) => a === b,
+    distance: (a, b) => game.manhattanDist(a, b),
+    preCheck: (from, to) =>
+      typeof from !== "number" ||
+      typeof to !== "number" ||
+      !game.isValidRef(from) ||
+      !game.isValidRef(to)
+        ? { status: PathStatus.NOT_FOUND }
+        : null,
+  };
+}
+
 export function getAdapter(
   game: Game,
   name: string,
 ): SteppingPathFinder<TileRef> {
   switch (name) {
     case "a.baseline": {
-      return new TilePathFinder(
-        game,
-        new MiniMapTransformer(new GameMapAStar(game.miniMap()), game),
-      );
+      return PathFinderBuilder.create(new GameMapAStar(game.miniMap()))
+        .wrap((pf) => new MiniMapTransformer(pf, game))
+        .buildWithStepper(tileStepperConfig(game));
     }
     case "a.generic": {
       const miniMap = game.miniMap();
       const adapter = new WaterGridAdapter(miniMap);
-      return new TilePathFinder(
-        game,
-        new MiniMapTransformer(new GenericAStar({ adapter }), game),
-      );
+      return PathFinderBuilder.create(new GenericAStar({ adapter }))
+        .wrap((pf) => new MiniMapTransformer(pf, game))
+        .buildWithStepper(tileStepperConfig(game));
     }
     case "a.full": {
-      return new TilePathFinder(game, new GameMapAStar(game.map()));
+      return PathFinderBuilder.create(
+        new GameMapAStar(game.map()),
+      ).buildWithStepper(tileStepperConfig(game));
     }
     case "hpa": {
       // Recreate GameMapHPAStar without cache, this approach was chosen

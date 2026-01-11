@@ -16,14 +16,6 @@ describe("MiniMapTransformer", () => {
     return { map, miniMap };
   }
 
-  // Mock Game that provides map and miniMap
-  function createMockGame(map: GameMapImpl, miniMap: GameMapImpl) {
-    return {
-      map: () => map,
-      miniMap: () => miniMap,
-    } as any;
-  }
-
   function createMockPathFinder(): PathFinder<number> & {
     calls: Array<{ from: number | number[]; to: number }>;
     returnPath: number[] | null | undefined;
@@ -44,9 +36,8 @@ describe("MiniMapTransformer", () => {
   describe("findPath", () => {
     it("converts coordinates to minimap scale", () => {
       const { map, miniMap } = createTestMaps();
-      const game = createMockGame(map, miniMap);
       const inner = createMockPathFinder();
-      const transformer = new MiniMapTransformer(inner, game);
+      const transformer = new MiniMapTransformer(inner, map, miniMap);
 
       const from = map.ref(4, 6);
       const to = map.ref(8, 2);
@@ -64,9 +55,8 @@ describe("MiniMapTransformer", () => {
 
     it("upscales minimap path back to full resolution", () => {
       const { map, miniMap } = createTestMaps();
-      const game = createMockGame(map, miniMap);
       const inner = createMockPathFinder();
-      const transformer = new MiniMapTransformer(inner, game);
+      const transformer = new MiniMapTransformer(inner, map, miniMap);
 
       const from = map.ref(0, 0);
       const to = map.ref(8, 0);
@@ -89,10 +79,9 @@ describe("MiniMapTransformer", () => {
 
     it("returns null when inner returns null", () => {
       const { map, miniMap } = createTestMaps();
-      const game = createMockGame(map, miniMap);
       const inner = createMockPathFinder();
       inner.returnPath = null;
-      const transformer = new MiniMapTransformer(inner, game);
+      const transformer = new MiniMapTransformer(inner, map, miniMap);
 
       const result = transformer.findPath(map.ref(0, 0), map.ref(8, 8));
 
@@ -101,10 +90,9 @@ describe("MiniMapTransformer", () => {
 
     it("returns null when inner returns empty path", () => {
       const { map, miniMap } = createTestMaps();
-      const game = createMockGame(map, miniMap);
       const inner = createMockPathFinder();
       inner.returnPath = [];
-      const transformer = new MiniMapTransformer(inner, game);
+      const transformer = new MiniMapTransformer(inner, map, miniMap);
 
       const result = transformer.findPath(map.ref(0, 0), map.ref(8, 8));
 
@@ -113,9 +101,8 @@ describe("MiniMapTransformer", () => {
 
     it("handles multiple sources", () => {
       const { map, miniMap } = createTestMaps();
-      const game = createMockGame(map, miniMap);
       const inner = createMockPathFinder();
-      const transformer = new MiniMapTransformer(inner, game);
+      const transformer = new MiniMapTransformer(inner, map, miniMap);
 
       const from1 = map.ref(0, 0);
       const from2 = map.ref(2, 0);
@@ -132,9 +119,8 @@ describe("MiniMapTransformer", () => {
 
     it("fixes path extremes to match original from/to", () => {
       const { map, miniMap } = createTestMaps();
-      const game = createMockGame(map, miniMap);
       const inner = createMockPathFinder();
-      const transformer = new MiniMapTransformer(inner, game);
+      const transformer = new MiniMapTransformer(inner, map, miniMap);
 
       // From odd coords - won't exactly map to minimap
       const from = map.ref(1, 1);
@@ -153,9 +139,8 @@ describe("MiniMapTransformer", () => {
   describe("coordinate mapping", () => {
     it("maps main coords (0,0) to mini coords (0,0)", () => {
       const { map, miniMap } = createTestMaps();
-      const game = createMockGame(map, miniMap);
       const inner = createMockPathFinder();
-      const transformer = new MiniMapTransformer(inner, game);
+      const transformer = new MiniMapTransformer(inner, map, miniMap);
 
       inner.returnPath = [miniMap.ref(0, 0)];
 
@@ -167,9 +152,8 @@ describe("MiniMapTransformer", () => {
 
     it("maps main coords (1,1) to mini coords (0,0) (floor division)", () => {
       const { map, miniMap } = createTestMaps();
-      const game = createMockGame(map, miniMap);
       const inner = createMockPathFinder();
-      const transformer = new MiniMapTransformer(inner, game);
+      const transformer = new MiniMapTransformer(inner, map, miniMap);
 
       inner.returnPath = [miniMap.ref(0, 0)];
 
@@ -181,9 +165,8 @@ describe("MiniMapTransformer", () => {
 
     it("maps main coords (2,2) to mini coords (1,1)", () => {
       const { map, miniMap } = createTestMaps();
-      const game = createMockGame(map, miniMap);
       const inner = createMockPathFinder();
-      const transformer = new MiniMapTransformer(inner, game);
+      const transformer = new MiniMapTransformer(inner, map, miniMap);
 
       inner.returnPath = [miniMap.ref(1, 1)];
 

@@ -1,4 +1,5 @@
-import { PathFinder } from "./types";
+import { PathFinderStepper, StepperConfig } from "./PathFinderStepper";
+import { PathFinder, SteppingPathFinder } from "./types";
 
 type WrapFactory<T> = (pf: PathFinder<T>) => PathFinder<T>;
 
@@ -30,5 +31,12 @@ export class PathFinderBuilder<T> {
       (pf, wrapper) => wrapper(pf),
       this.core as PathFinder<T>,
     );
+  }
+
+  /**
+   * Build and wrap with PathFinderStepper for step-by-step traversal.
+   */
+  buildWithStepper(config: StepperConfig<T>): SteppingPathFinder<T> {
+    return new PathFinderStepper(this.build(), config);
   }
 }

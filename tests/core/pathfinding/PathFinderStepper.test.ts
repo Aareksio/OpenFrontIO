@@ -162,7 +162,7 @@ describe("PathFinderStepper", () => {
         },
       };
 
-      const stepper = new PathFinderStepper(finder, posEquals);
+      const stepper = new PathFinderStepper(finder, { equals: posEquals });
 
       const from1 = { x: 1, y: 0 };
       const to = { x: 3, y: 0 };

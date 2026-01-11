@@ -2,10 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { Game } from "../../../src/core/game/Game";
 import { TileRef } from "../../../src/core/game/GameMap";
 import { PathFinding } from "../../../src/core/pathfinding/PathFinder";
-import {
-  PathStatus,
-  SteppingPathFinder,
-} from "../../../src/core/pathfinding/types";
+import { SteppingPathFinder } from "../../../src/core/pathfinding/types";
 import { setup } from "../../util/Setup";
 
 describe("PathFinding.Air", () => {
@@ -58,77 +55,6 @@ describe("PathFinding.Air", () => {
 
       expect(path).not.toBeNull();
       expect(path![0]).toBe(tile);
-    });
-  });
-
-  describe("next", () => {
-    it("returns COMPLETE when at destination", () => {
-      const pathFinder = createPathFinder();
-      const map = game.map();
-      const tile = map.ref(8, 8);
-
-      const result = pathFinder.next(tile, tile);
-
-      expect(result.status).toBe(PathStatus.COMPLETE);
-      expect((result as { node: TileRef }).node).toBe(tile);
-    });
-
-    it("returns NEXT with adjacent tile when not at destination", () => {
-      const pathFinder = createPathFinder();
-      const map = game.map();
-
-      const from = map.ref(2, 2);
-      const to = map.ref(14, 14);
-
-      const result = pathFinder.next(from, to);
-
-      expect(result.status).toBe(PathStatus.NEXT);
-      const node = (result as { node: TileRef }).node;
-      expect(map.manhattanDist(from, node)).toBe(1);
-    });
-
-    it("eventually reaches destination through repeated stepping", () => {
-      const pathFinder = createPathFinder();
-      const map = game.map();
-
-      // (2,2) → (10,10): manhattan = 16, so exactly 16 steps
-      const from = map.ref(2, 2);
-      const to = map.ref(10, 10);
-
-      let current = from;
-      let steps = 0;
-
-      while (current !== to) {
-        const result = pathFinder.next(current, to);
-
-        if (result.status === PathStatus.COMPLETE) {
-          break;
-        }
-
-        current = (result as { node: TileRef }).node;
-        steps++;
-      }
-
-      // Should take exactly 16 steps (manhattan distance)
-      expect(steps).toBe(16);
-    });
-
-    it("ignores dist parameter", () => {
-      const pathFinder = createPathFinder();
-      const map = game.map();
-
-      const from = map.ref(10, 10);
-      const to = map.ref(13, 10);
-      const actualDist = map.manhattanDist(from, to);
-      expect(actualDist).toBe(3);
-
-      // Air pathfinder does NOT respect dist parameter; always steps 1 tile
-      const result = pathFinder.next(from, to, 10);
-
-      expect(result.status).toBe(PathStatus.NEXT);
-      const node = (result as { node: TileRef }).node;
-      expect(map.manhattanDist(from, node)).toBe(1);
-      expect(map.manhattanDist(node, to)).toBe(2);
     });
   });
 

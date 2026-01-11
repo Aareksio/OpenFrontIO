@@ -1,4 +1,15 @@
-import { PathFinder, PathResult, PathStatus } from "./types";
+import {
+  PathFinder,
+  PathResult,
+  PathStatus,
+  SteppingPathFinder,
+} from "./types";
+
+export interface StepperConfig<T> {
+  equals: (a: T, b: T) => boolean;
+  distance?: (a: T, b: T) => number;
+  preCheck?: (from: T, to: T) => PathResult<T> | null;
+}
 
 /**
  * PathFinderStepper - wraps a PathFinder and provides step-by-step traversal
@@ -6,27 +17,40 @@ import { PathFinder, PathResult, PathStatus } from "./types";
  * Handles path caching, invalidation, and incremental movement.
  * Generic over any PathFinder<T> implementation.
  */
-export class PathFinderStepper<T> {
+export class PathFinderStepper<T> implements SteppingPathFinder<T> {
   private path: T[] | null = null;
   private pathIndex = 0;
   private lastTo: T | null = null;
 
   constructor(
     private finder: PathFinder<T>,
-    private equals: (a: T, b: T) => boolean = (a, b) => a === b,
+    private config: StepperConfig<T> = { equals: (a, b) => a === b },
   ) {}
 
   /**
    * Get the next step on the path from `from` to `to`.
    * Returns PathResult with status and optional next node.
    */
-  next(from: T, to: T): PathResult<T> {
-    if (this.equals(from, to)) {
+  next(from: T, to: T, dist?: number): PathResult<T> {
+    // Domain-specific pre-check (validation, cluster, etc.)
+    if (this.config.preCheck) {
+      const result = this.config.preCheck(from, to);
+      if (result) return result;
+    }
+
+    if (this.config.equals(from, to)) {
       return { status: PathStatus.COMPLETE, node: to };
     }
 
+    // Distance-based early exit
+    if (dist !== undefined && dist > 0 && this.config.distance) {
+      if (this.config.distance(from, to) <= dist) {
+        return { status: PathStatus.COMPLETE, node: from };
+      }
+    }
+
     // Invalidate cache if destination changed
-    if (this.lastTo === null || !this.equals(this.lastTo, to)) {
+    if (this.lastTo === null || !this.config.equals(this.lastTo, to)) {
       this.path = null;
       this.pathIndex = 0;
       this.lastTo = to;
@@ -36,7 +60,8 @@ export class PathFinderStepper<T> {
     if (this.path === null) {
       try {
         this.path = this.finder.findPath(from, to);
-      } catch {
+      } catch (err) {
+        console.error("PathFinder threw an error during findPath", err);
         return { status: PathStatus.NOT_FOUND };
       }
 
@@ -45,30 +70,16 @@ export class PathFinderStepper<T> {
       }
 
       this.pathIndex = 0;
-      // Skip start if it matches current position
-      if (this.path.length > 0 && this.equals(this.path[0], from)) {
+      if (this.path.length > 0 && this.config.equals(this.path[0], from)) {
         this.pathIndex = 1;
       }
     }
 
-    // Validate we're still on path
     const expectedPos = this.path[this.pathIndex - 1];
-    if (this.pathIndex > 0 && !this.equals(from, expectedPos)) {
-      // Recompute path from current position
-      try {
-        this.path = this.finder.findPath(from, to);
-      } catch {
-        return { status: PathStatus.NOT_FOUND };
-      }
-
-      if (this.path === null) {
-        return { status: PathStatus.NOT_FOUND };
-      }
-
-      this.pathIndex = 0;
-      if (this.path.length > 0 && this.equals(this.path[0], from)) {
-        this.pathIndex = 1;
-      }
+    if (this.pathIndex > 0 && !this.config.equals(from, expectedPos)) {
+      this.invalidate();
+      this.lastTo = to;
+      return this.next(from, to, dist);
     }
 
     // Check if we've reached the end
@@ -83,19 +94,19 @@ export class PathFinderStepper<T> {
     return { status: PathStatus.NEXT, node: nextNode };
   }
 
-  /**
-   * Clear cached path. Call when target changes or path becomes invalid.
-   */
   invalidate(): void {
     this.path = null;
     this.pathIndex = 0;
     this.lastTo = null;
   }
 
-  /**
-   * Compute full path without stepping
-   */
   findPath(from: T | T[], to: T): T[] | null {
+    if (this.config.preCheck) {
+      const first = Array.isArray(from) ? from[0] : from;
+      const result = this.config.preCheck(first, to);
+      if (result?.status === PathStatus.NOT_FOUND) return null;
+    }
+
     return this.finder.findPath(from, to);
   }
 }
