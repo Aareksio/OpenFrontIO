@@ -112,8 +112,7 @@ export class BFSGrid {
   private nextStamp(): number {
     const stamp = this.stamp++;
 
-    if (this.stamp === 0) {
-      // Overflow - reset (extremely rare)
+    if (this.stamp > 0xffffffff) {
       this.visitedStamp.fill(0);
       this.stamp = 1;
     }

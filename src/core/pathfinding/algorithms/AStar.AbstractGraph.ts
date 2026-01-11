@@ -55,9 +55,8 @@ export class AbstractGraphAStar implements PathFinder<number> {
   }
 
   private findPathSingle(startId: number, goalId: number): number[] | null {
-    // Advance stamp (handles overflow)
     this.stamp++;
-    if (this.stamp === 0) {
+    if (this.stamp > 0xffffffff) {
       this.closedStamp.fill(0);
       this.gScoreStamp.fill(0);
       this.stamp = 1;
@@ -148,9 +147,8 @@ export class AbstractGraphAStar implements PathFinder<number> {
     if (startIds.length === 0) return null;
     if (startIds.length === 1) return this.findPathSingle(startIds[0], goalId);
 
-    // Advance stamp (handles overflow)
     this.stamp++;
-    if (this.stamp === 0) {
+    if (this.stamp > 0xffffffff) {
       this.closedStamp.fill(0);
       this.gScoreStamp.fill(0);
       this.stamp = 1;

@@ -41,7 +41,7 @@ export class AStarWater implements PathFinder<number> {
 
   findPath(start: number | number[], goal: number): number[] | null {
     this.stamp++;
-    if (this.stamp === 0) {
+    if (this.stamp > 0xffffffff) {
       this.closedStamp.fill(0);
       this.gScoreStamp.fill(0);
       this.stamp = 1;
