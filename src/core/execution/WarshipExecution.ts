@@ -195,13 +195,7 @@ export class WarshipExecution implements Execution {
           this.warship.touch();
           break;
         case PathStatus.NOT_FOUND: {
-          const srcComp = this.mg.getWaterComponent(this.warship.tile());
-          const dstComp = this.mg.getWaterComponent(
-            this.warship.targetUnit()!.tile(),
-          );
-          console.warn(
-            `path not found to trade ship: src=${this.warship.tile()} comp=${srcComp}, dst=${this.warship.targetUnit()!.tile()} comp=${dstComp}`,
-          );
+          console.log(`path not found to target`);
           break;
         }
       }
@@ -232,12 +226,7 @@ export class WarshipExecution implements Execution {
         this.warship.touch();
         return;
       case PathStatus.NOT_FOUND: {
-        const srcComp = this.mg.getWaterComponent(this.warship.tile());
-        const dstComp = this.mg.getWaterComponent(this.warship.targetTile()!);
-        console.warn(
-          `path not found to patrol: src=${this.warship.tile()} comp=${srcComp}, dst=${this.warship.targetTile()} comp=${dstComp}`,
-        );
-        this.warship.setTargetTile(undefined);
+        console.log(`path not found to target`);
         break;
       }
     }

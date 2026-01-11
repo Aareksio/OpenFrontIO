@@ -114,13 +114,9 @@ export class GameImpl implements Game {
     this.addPlayers();
 
     if (!_config.disableNavMesh()) {
-      // Build abstract graph first
-      const graphBuilder = new AbstractGraphBuilder(
-        this.miniGameMap,
-        AbstractGraphBuilder.CLUSTER_SIZE,
-      );
-      this._miniWaterGraph = graphBuilder.build(false);
-      // HPA* operates on minimap with its abstract graph
+      const graphBuilder = new AbstractGraphBuilder(this.miniGameMap);
+      this._miniWaterGraph = graphBuilder.build();
+
       this._miniWaterHPA = new AStarWaterHierarchical(
         this.miniGameMap,
         this._miniWaterGraph,

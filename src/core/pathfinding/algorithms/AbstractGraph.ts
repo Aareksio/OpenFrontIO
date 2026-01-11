@@ -221,7 +221,7 @@ export class AbstractGraphBuilder {
 
   constructor(
     private readonly map: GameMap,
-    private readonly clusterSize: number,
+    private readonly clusterSize: number = AbstractGraphBuilder.CLUSTER_SIZE,
   ) {
     this.width = map.width();
     this.height = map.height();
@@ -231,7 +231,7 @@ export class AbstractGraphBuilder {
     this.waterComponents = new ConnectedComponents(map);
   }
 
-  build(debug: boolean): AbstractGraph {
+  build(debug: boolean = false): AbstractGraph {
     performance.mark("abstractgraph:build:start");
 
     this.graph = new AbstractGraph(
