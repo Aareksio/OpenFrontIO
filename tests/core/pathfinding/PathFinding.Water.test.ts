@@ -7,7 +7,7 @@ import {
   SteppingPathFinder,
 } from "../../../src/core/pathfinding/types";
 import { setup } from "../../util/Setup";
-import { createGame, L, W } from "./fixtures";
+import { createGame, L, W } from "./_fixtures";
 
 describe("PathFinding.Water", () => {
   let game: Game;

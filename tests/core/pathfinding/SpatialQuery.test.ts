@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { SpawnExecution } from "../../../src/core/execution/SpawnExecution";
 import { PlayerInfo, PlayerType } from "../../../src/core/game/Game";
 import { SpatialQuery } from "../../../src/core/pathfinding/spatial/SpatialQuery";
-import { createGame, L, W } from "./fixtures";
+import { createGame, L, W } from "./_fixtures";
 
 describe("SpatialQuery", () => {
   describe("closestShoreByLand", () => {

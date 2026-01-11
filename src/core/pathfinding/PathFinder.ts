@@ -19,11 +19,6 @@ import { MiniMapTransformer } from "./transformers/MiniMapTransformer";
 import { ShoreCoercingTransformer } from "./transformers/ShoreCoercingTransformer";
 import { SteppingPathFinder } from "./types";
 
-export interface RailOptions {
-  waterPenalty?: number;
-  directionChangePenalty?: number;
-}
-
 /**
  * Pathfinders that work with GameMap - usable in both simulation and UI layers
  */
@@ -64,8 +59,8 @@ export class PathFinding {
 
   static WaterFallback(game: Game): SteppingPathFinder<TileRef> {
     const miniMap = game.miniMap();
-
-    const finder = PathFinderBuilder.create(new GameMapAStar(miniMap))
+    const pf = new GameMapAStar(miniMap);
+    const finder = PathFinderBuilder.create(pf)
       .wrap((pf) => new ShoreCoercingTransformer(pf, miniMap))
       .wrap((pf) => new MiniMapTransformer(pf, game))
       .build();
@@ -73,16 +68,11 @@ export class PathFinding {
     return new TilePathFinder(game, finder);
   }
 
-  static Rail(game: Game, options?: RailOptions): SteppingPathFinder<TileRef> {
+  static Rail(game: Game): SteppingPathFinder<TileRef> {
     const miniMap = game.miniMap();
-    const finder = PathFinderBuilder.create(
-      new GenericAStar({
-        adapter: new RailAdapter(miniMap, {
-          waterPenalty: options?.waterPenalty,
-          directionChangePenalty: options?.directionChangePenalty,
-        }),
-      }),
-    )
+    const adapter = new RailAdapter(miniMap);
+    const pf = new GenericAStar({ adapter });
+    const finder = PathFinderBuilder.create(pf)
       .wrap((pf) => new MiniMapTransformer(pf, game))
       .build();
 
@@ -91,8 +81,8 @@ export class PathFinding {
 
   static Stations(game: Game): SteppingPathFinder<TrainStation> {
     const adapter = new StationGraphAdapter(game);
-    const aStar = new GenericAStar({ adapter });
-    return new StationPathFinder(game, aStar);
+    const pf = new GenericAStar({ adapter });
+    return new StationPathFinder(game, pf);
   }
 
   static Air(game: Game): SteppingPathFinder<TileRef> {

@@ -3,7 +3,7 @@ import {
   GameMapWaterComponents,
   LAND_MARKER,
 } from "../../../src/core/pathfinding/algorithms/hpa/WaterComponents";
-import { createGameMap, createIslandMap, L, ref, W } from "./fixtures";
+import { createGameMap, createIslandMap, L, ref, W } from "./_fixtures";
 
 /**
  * 7x5 map: two separate water bodies (components)

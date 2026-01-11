@@ -61,10 +61,10 @@ describe("PathFinderStepper", () => {
 
     it("recomputes path when moved off-path", () => {
       // Path from 1->5 goes through 2,3,4
-      // Path from 10->5 goes through 8,6
+      // Path from 10->5 goes through 9,8,7,6
       const pathMap = new Map<string, number[]>([
         ["1->5", [1, 2, 3, 4, 5]],
-        ["10->5", [10, 8, 6, 5]],
+        ["10->5", [10, 9, 8, 7, 6, 5]],
       ]);
       const stepper = new PathFinderStepper(createMockFinder(pathMap));
 
@@ -77,7 +77,7 @@ describe("PathFinderStepper", () => {
       // Should recompute using path from 10->5
       const result2 = stepper.next(10, 5);
       expect(result2.status).toBe(PathStatus.NEXT);
-      expect((result2 as { node: number }).node).toBe(8);
+      expect((result2 as { node: number }).node).toBe(9);
     });
 
     it("recomputes path when destination changes", () => {
@@ -111,19 +111,16 @@ describe("PathFinderStepper", () => {
       };
       const stepper = new PathFinderStepper(finder);
 
-      // First call computes path
       stepper.next(1, 5);
+      stepper.next(5, 5);
+
+      // Second call follows path without recomputing
       expect(callCount).toBe(1);
 
-      // Second call reuses cached path (no new findPath call)
-      stepper.next(5, 5); // at destination, no recompute needed
-      expect(callCount).toBe(1);
-
-      // Invalidate
       stepper.invalidate();
-
-      // Next call recomputes path
       stepper.next(1, 5);
+
+      // Recomputed path after invalidation
       expect(callCount).toBe(2);
     });
   });
@@ -141,7 +138,6 @@ describe("PathFinderStepper", () => {
     it("supports multi-source", () => {
       const finder: PathFinder<number> = {
         findPath(from, to): number[] | null {
-          // Return path starting from first source
           const firstFrom = Array.isArray(from) ? from[0] : from;
           return [firstFrom, to];
         },
@@ -168,16 +164,16 @@ describe("PathFinderStepper", () => {
 
       const stepper = new PathFinderStepper(finder, posEquals);
 
-      // Same logical position but different object
       const from1 = { x: 1, y: 0 };
       const to = { x: 3, y: 0 };
 
       const result1 = stepper.next(from1, to);
       expect(result1.status).toBe(PathStatus.NEXT);
 
-      // Use equivalent but different object - should still be on-path
+      // Use equivalent but different object (a !== b), still on track
       const result2 = stepper.next({ x: 2, y: 0 }, to);
       expect(result2.status).toBe(PathStatus.NEXT);
+      expect((result2 as { node: Pos }).node).toEqual({ x: 3, y: 0 });
     });
   });
 });

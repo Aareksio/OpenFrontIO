@@ -3,29 +3,20 @@
 import { GameMap } from "../../game/GameMap";
 import { GenericAStarAdapter } from "./AStar";
 
-export interface RailAdapterConfig {
-  waterPenalty?: number;
-  directionChangePenalty?: number;
-  heuristicWeight?: number;
-}
-
 export class RailAdapter implements GenericAStarAdapter {
   private readonly gameMap: GameMap;
   private readonly width: number;
   private readonly height: number;
   private readonly _numNodes: number;
-  private readonly waterPenalty: number;
-  private readonly directionChangePenalty: number;
-  private readonly heuristicWeight: number;
+  private readonly waterPenalty = 5;
+  private readonly heuristicWeight = 2;
+  private readonly directionChangePenalty = 3;
 
-  constructor(gameMap: GameMap, config: RailAdapterConfig = {}) {
+  constructor(gameMap: GameMap) {
     this.gameMap = gameMap;
     this.width = gameMap.width();
     this.height = gameMap.height();
     this._numNodes = this.width * this.height;
-    this.waterPenalty = config.waterPenalty ?? 3;
-    this.directionChangePenalty = config.directionChangePenalty ?? 0;
-    this.heuristicWeight = config.heuristicWeight ?? 15;
   }
 
   numNodes(): number {
@@ -37,7 +28,6 @@ export class RailAdapter implements GenericAStarAdapter {
   }
 
   maxPriority(): number {
-    // Account for water and direction penalties in max priority
     const maxCost = 1 + this.waterPenalty + this.directionChangePenalty;
     return this.heuristicWeight * (this.width + this.height) * maxCost;
   }
@@ -74,9 +64,10 @@ export class RailAdapter implements GenericAStarAdapter {
   }
 
   cost(from: number, to: number, prev?: number): number {
-    let c = this.gameMap.isWater(to) ? 1 + this.waterPenalty : 1;
+    const penalized = this.gameMap.isWater(to) || this.gameMap.isShoreline(to);
+    let c = penalized ? 1 + this.waterPenalty : 1;
 
-    if (prev !== undefined && this.directionChangePenalty > 0) {
+    if (prev !== undefined) {
       const d1 = from - prev;
       const d2 = to - from;
       if (d1 !== d2) {

@@ -65,12 +65,7 @@ class RailPathFinderServiceImpl implements RailPathFinderService {
   constructor(private game: Game) {}
 
   findTilePath(from: TileRef, to: TileRef): TileRef[] {
-    return (
-      PathFinding.Rail(this.game, { directionChangePenalty: 3 }).findPath(
-        from,
-        to,
-      ) ?? []
-    );
+    return PathFinding.Rail(this.game).findPath(from, to) ?? [];
   }
 
   findStationsPath(from: TrainStation, to: TrainStation): TrainStation[] {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ComponentCheckTransformer } from "../../../src/core/pathfinding/transformers/ComponentCheckTransformer";
-import { PathFinder } from "../../../src/core/pathfinding/types";
+import { ComponentCheckTransformer } from "../../../../src/core/pathfinding/transformers/ComponentCheckTransformer";
+import { PathFinder } from "../../../../src/core/pathfinding/types";
 
 describe("ComponentCheckTransformer", () => {
   // Mock PathFinder that records calls and returns a simple path
@@ -8,11 +8,11 @@ describe("ComponentCheckTransformer", () => {
     calls: Array<{ from: number | number[]; to: number }>;
   } {
     const calls: Array<{ from: number | number[]; to: number }> = [];
+
     return {
       calls,
       findPath(from: number | number[], to: number): number[] | null {
         calls.push({ from, to });
-        // Return simple path from first source to destination
         const start = Array.isArray(from) ? from[0] : from;
         return [start, to];
       },
