@@ -1,49 +1,27 @@
-import { GameMap, TileRef } from "../../game/GameMap";
+import { Game, Player, TerraNullius } from "../../game/Game";
+import { TileRef } from "../../game/GameMap";
+import { PathFinding } from "../PathFinder";
 
-/**
- * SpatialQuery - interface for spatial queries on a graph.
- * Separate from PathFinder: finds single tiles, not paths.
- */
-export interface SpatialQuery<T> {
+type Owner = Player | TerraNullius;
+
+export class SpatialQuery {
+  constructor(private game: Game) {}
+
   /**
    * Find nearest tile matching predicate using BFS traversal.
-   * Respects terrain/traversability.
+   * Uses Manhattan distance filter, ignores terrain barriers.
    */
-  bfsNearest(from: T, maxDist: number, predicate: (t: T) => boolean): T | null;
-
-  /**
-   * Find all tiles within distance matching predicate using BFS.
-   */
-  bfsWithinDistance(
-    from: T,
-    maxDist: number,
-    predicate: (t: T) => boolean,
-  ): T[];
-
-  /**
-   * Find closest tile by Manhattan distance from a set.
-   * Pure coordinate distance, ignores obstacles.
-   */
-  manhattanNearest(tiles: T[], target: T): T | null;
-}
-
-/**
- * TileSpatialQuery - SpatialQuery implementation for GameMap tiles.
- * Uses GameMap.bfs() for traversal-based queries.
- */
-export class TileSpatialQuery implements SpatialQuery<TileRef> {
-  constructor(private map: GameMap) {}
-
-  bfsNearest(
+  private bfsNearest(
     from: TileRef,
     maxDist: number,
     predicate: (t: TileRef) => boolean,
   ): TileRef | null {
+    const map = this.game.map();
     const candidates: TileRef[] = [];
 
-    for (const tile of this.map.bfs(
+    for (const tile of map.bfs(
       from,
-      (_, t) => this.map.manhattanDist(from, t) <= maxDist,
+      (_, t) => map.manhattanDist(from, t) <= maxDist,
     )) {
       if (predicate(tile)) {
         candidates.push(tile);
@@ -54,40 +32,56 @@ export class TileSpatialQuery implements SpatialQuery<TileRef> {
 
     // Sort by Manhattan distance to find actual nearest
     candidates.sort(
-      (a, b) =>
-        this.map.manhattanDist(from, a) - this.map.manhattanDist(from, b),
+      (a, b) => map.manhattanDist(from, a) - map.manhattanDist(from, b),
     );
 
     return candidates[0];
   }
 
-  bfsWithinDistance(
-    from: TileRef,
-    maxDist: number,
-    predicate: (t: TileRef) => boolean,
-  ): TileRef[] {
-    const result: TileRef[] = [];
+  /**
+   * Find closest shore tile by land BFS.
+   * Works for both players and terra nullius.
+   */
+  closestShoreByLand(
+    owner: Owner,
+    tile: TileRef,
+    maxDist: number = 50,
+  ): TileRef | null {
+    const gm = this.game;
+    const ownerId = owner.smallID();
 
-    for (const tile of this.map.bfs(
-      from,
-      (_, t) => this.map.manhattanDist(from, t) <= maxDist,
-    )) {
-      if (predicate(tile)) {
-        result.push(tile);
-      }
-    }
+    const isValidTile = (t: TileRef) => {
+      if (!gm.isShore(t) || !gm.isLand(t)) return false;
+      const tOwner = gm.ownerID(t);
+      return tOwner === ownerId;
+    };
 
-    return result;
+    return this.bfsNearest(tile, maxDist, isValidTile);
   }
 
-  manhattanNearest(tiles: TileRef[], target: TileRef): TileRef | null {
-    if (tiles.length === 0) return null;
+  /**
+   * Find closest shore tile by water pathfinding.
+   * Returns null for terra nullius (no borderTiles).
+   */
+  closestShoreByWater(owner: Owner, target: TileRef): TileRef | null {
+    if (!owner.isPlayer()) return null;
 
-    return tiles.reduce((closest, current) =>
-      this.map.manhattanDist(target, current) <
-      this.map.manhattanDist(target, closest)
-        ? current
-        : closest,
-    );
+    const gm = this.game;
+    const player = owner as Player;
+
+    const targetComponent = gm.getWaterComponent(target);
+    if (targetComponent === null) return null;
+
+    const isValidTile = (t: TileRef) => {
+      if (!gm.isShore(t) || !gm.isLand(t)) return false;
+      const tComponent = gm.getWaterComponent(t);
+      return tComponent === targetComponent;
+    };
+
+    const shores = Array.from(player.borderTiles()).filter(isValidTile);
+    if (shores.length === 0) return null;
+
+    const path = PathFinding.Water(gm).findPath(shores, target);
+    return path?.[0] ?? null;
   }
 }
