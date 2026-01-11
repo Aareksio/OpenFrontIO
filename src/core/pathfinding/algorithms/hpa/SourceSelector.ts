@@ -1,15 +1,22 @@
 // Source Selector for HPA* multi-source search
-// Selects best source from candidates using abstract graph BFS
 
 import { GameMap, TileRef } from "../../../game/GameMap";
-import { AbstractGraph, AbstractNode } from "./AbstractGraph";
-import { LAND_MARKER } from "./WaterComponents";
+import { AbstractGraph, AbstractNode } from "../AbstractGraph";
+import { BFS } from "../BFS";
+import { LAND_MARKER } from "../ConnectedComponents";
 
 export class SourceSelector {
+  private bfs: BFS<number>;
+
   constructor(
     private map: GameMap,
     private graph: AbstractGraph,
-  ) {}
+  ) {
+    this.bfs = new BFS({
+      neighbors: (n) =>
+        this.graph.getNodeEdges(n).map((e) => this.graph.getOtherNode(e, n)),
+    });
+  }
 
   /**
    * Select best source from candidates to reach target.
@@ -131,37 +138,13 @@ export class SourceSelector {
 
   /**
    * BFS on abstract graph to find nearest source node from target.
-   * Returns first source node ID reached, or null if none reachable.
    */
   private findNearestSourceNode(
     targetNodeId: number,
     sourceNodeIds: Set<number>,
   ): number | null {
-    // Early exit: target is a source
-    if (sourceNodeIds.has(targetNodeId)) {
-      return targetNodeId;
-    }
-
-    const visited = new Set<number>();
-    const queue: number[] = [targetNodeId];
-    visited.add(targetNodeId);
-
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-
-      for (const edge of this.graph.getNodeEdges(current)) {
-        const neighbor = this.graph.getOtherNode(edge, current);
-        if (visited.has(neighbor)) continue;
-
-        if (sourceNodeIds.has(neighbor)) {
-          return neighbor;
-        }
-
-        visited.add(neighbor);
-        queue.push(neighbor);
-      }
-    }
-
-    return null;
+    return this.bfs.search(targetNodeId, Infinity, (n) =>
+      sourceNodeIds.has(n) ? n : undefined,
+    );
   }
 }

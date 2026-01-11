@@ -1,9 +1,8 @@
 import { Game } from "../game/Game";
 import { GameMap, TileRef } from "../game/GameMap";
 import { TrainStation } from "../game/TrainStation";
-import { GenericAStar } from "./algorithms/AStar";
-import { RailAdapter } from "./algorithms/AStarRailAdapter";
-import { GameMapAStar } from "./algorithms/AStarWaterAdapter";
+import { AStarRail } from "./algorithms/AStar.Rail";
+import { AStarWater } from "./algorithms/AStar.Water";
 import { AirPathFinder } from "./PathFinder.Air";
 import {
   ParabolaOptions,
@@ -55,7 +54,7 @@ export class PathFinding {
 
   static WaterSimple(game: Game): SteppingPathFinder<TileRef> {
     const miniMap = game.miniMap();
-    const pf = new GameMapAStar(miniMap);
+    const pf = new AStarWater(miniMap);
 
     return PathFinderBuilder.create(pf)
       .wrap((pf) => new ShoreCoercingTransformer(pf, miniMap))
@@ -65,8 +64,7 @@ export class PathFinding {
 
   static Rail(game: Game): SteppingPathFinder<TileRef> {
     const miniMap = game.miniMap();
-    const adapter = new RailAdapter(miniMap);
-    const pf = new GenericAStar({ adapter });
+    const pf = new AStarRail(miniMap);
 
     return PathFinderBuilder.create(pf)
       .wrap((pf) => new MiniMapTransformer(pf, game.map(), miniMap))

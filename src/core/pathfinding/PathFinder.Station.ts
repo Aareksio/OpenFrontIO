@@ -1,17 +1,17 @@
 import { Game } from "../game/Game";
 import { StationManager } from "../game/RailNetworkImpl";
 import { TrainStation } from "../game/TrainStation";
-import { GenericAStar, GenericAStarAdapter } from "./algorithms/AStar";
+import { AStar, AStarAdapter } from "./algorithms/AStar";
 import { PathFinder } from "./types";
 
 export class StationPathFinder implements PathFinder<TrainStation> {
   private manager: StationManager;
-  private aStar: GenericAStar;
+  private aStar: AStar;
 
   constructor(game: Game) {
     this.manager = game.railNetwork().stationManager();
     const adapter = new StationGraphAdapter(game, this.manager);
-    this.aStar = new GenericAStar({ adapter });
+    this.aStar = new AStar({ adapter });
   }
 
   findPath(
@@ -31,7 +31,7 @@ export class StationPathFinder implements PathFinder<TrainStation> {
   }
 }
 
-class StationGraphAdapter implements GenericAStarAdapter {
+class StationGraphAdapter implements AStarAdapter {
   constructor(
     private game: Game,
     private manager: StationManager,

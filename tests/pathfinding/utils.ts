@@ -17,7 +17,7 @@ import {
   MapManifest,
 } from "../../src/core/game/TerrainMapLoader";
 import { UserSettings } from "../../src/core/game/UserSettings";
-import { GenericAStar } from "../../src/core/pathfinding/algorithms/AStar";
+import { AStar } from "../../src/core/pathfinding/algorithms/AStar";
 import {
   GameMapAStar,
   WaterGridAdapter,
@@ -82,7 +82,7 @@ export function getAdapter(
     case "a.generic": {
       const miniMap = game.miniMap();
       const adapter = new WaterGridAdapter(miniMap);
-      return PathFinderBuilder.create(new GenericAStar({ adapter }))
+      return PathFinderBuilder.create(new AStar({ adapter }))
         .wrap((pf) => new MiniMapTransformer(pf, game))
         .buildWithStepper(tileStepperConfig(game));
     }

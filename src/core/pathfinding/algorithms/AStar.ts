@@ -1,11 +1,11 @@
 // Generic A* implementation with adapter interface
-// Use when performance is not critical, inline otherwise
-// See AStarWaterAdapter.ts for fully inlined water A* implementation
+// See AStar.Rail.ts for adapter version where performance is not critical
+// See AStar.Water.ts for inlined version for performance-critical use
 
 import { PathFinder } from "../types";
 import { BucketQueue, PriorityQueue } from "./PriorityQueue";
 
-export interface GenericAStarAdapter {
+export interface AStarAdapter {
   // Important optimization: write to the buffer and return the count
   // You can do this and it will be much faster :)
   neighbors(node: number, buffer: Int32Array): number;
@@ -17,12 +17,12 @@ export interface GenericAStarAdapter {
   maxNeighbors(): number;
 }
 
-export interface GenericAStarConfig {
-  adapter: GenericAStarAdapter;
+export interface AStarConfig {
+  adapter: AStarAdapter;
   maxIterations?: number;
 }
 
-export class GenericAStar implements PathFinder<number> {
+export class AStar implements PathFinder<number> {
   private stamp = 1;
 
   private readonly closedStamp: Uint32Array;
@@ -30,11 +30,11 @@ export class GenericAStar implements PathFinder<number> {
   private readonly gScore: Uint32Array;
   private readonly cameFrom: Int32Array;
   private readonly queue: PriorityQueue;
-  private readonly adapter: GenericAStarAdapter;
+  private readonly adapter: AStarAdapter;
   private readonly neighborBuffer: Int32Array;
   private readonly maxIterations: number;
 
-  constructor(config: GenericAStarConfig) {
+  constructor(config: AStarConfig) {
     this.adapter = config.adapter;
     this.maxIterations = config.maxIterations ?? 500_000;
     this.neighborBuffer = new Int32Array(this.adapter.maxNeighbors());

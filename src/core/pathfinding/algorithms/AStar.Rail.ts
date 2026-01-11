@@ -1,9 +1,22 @@
-// Rail/land A* adapter for GenericAStar
-
 import { GameMap } from "../../game/GameMap";
-import { GenericAStarAdapter } from "./AStar";
+import { PathFinder } from "../types";
+import { AStar, AStarAdapter } from "./AStar";
 
-export class RailAdapter implements GenericAStarAdapter {
+export class AStarRail implements PathFinder<number> {
+  private readonly aStar: AStar;
+
+  constructor(gameMap: GameMap) {
+    const adapter = new RailAdapter(gameMap);
+    this.aStar = new AStar({ adapter });
+  }
+
+  findPath(from: number | number[], to: number): number[] | null {
+    return this.aStar.findPath(from, to);
+  }
+}
+
+// Internal adapter
+class RailAdapter implements AStarAdapter {
   private readonly gameMap: GameMap;
   private readonly width: number;
   private readonly height: number;

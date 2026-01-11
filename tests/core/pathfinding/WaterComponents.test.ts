@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  GameMapWaterComponents,
+  ConnectedComponents,
   LAND_MARKER,
-} from "../../../src/core/pathfinding/algorithms/hpa/WaterComponents";
+} from "../../../src/core/pathfinding/algorithms/ConnectedComponents";
 import { createGameMap, createIslandMap, L, W } from "./_fixtures";
 
 // prettier-ignore
@@ -16,11 +16,11 @@ const twoComponentsMapData = {
   ],
 };
 
-describe("GameMapWaterComponents", () => {
+describe("ConnectedComponents", () => {
   describe("getComponentId", () => {
     it("returns 0 before initialization", () => {
       const map = createGameMap(createIslandMap());
-      const wc = new GameMapWaterComponents(map);
+      const wc = new ConnectedComponents(map);
 
       // Water tile at (0,0) - should return 0 (not initialized)
       const waterTile = map.ref(0, 0);
@@ -29,7 +29,7 @@ describe("GameMapWaterComponents", () => {
 
     it("returns same component ID for all water tiles in single connected area", () => {
       const map = createGameMap(createIslandMap());
-      const wc = new GameMapWaterComponents(map);
+      const wc = new ConnectedComponents(map);
       wc.initialize();
 
       const water1 = map.ref(0, 0);
@@ -55,7 +55,7 @@ describe("GameMapWaterComponents", () => {
 
     it("returns different component IDs for disconnected water areas", () => {
       const map = createGameMap(twoComponentsMapData);
-      const wc = new GameMapWaterComponents(map);
+      const wc = new ConnectedComponents(map);
       wc.initialize();
 
       const leftWater1 = map.ref(0, 0);
@@ -86,7 +86,7 @@ describe("GameMapWaterComponents", () => {
 
     it("returns LAND_MARKER for land tiles", () => {
       const map = createGameMap(twoComponentsMapData);
-      const wc = new GameMapWaterComponents(map);
+      const wc = new ConnectedComponents(map);
       wc.initialize();
 
       const landTile1 = map.ref(2, 0);
@@ -106,8 +106,8 @@ describe("GameMapWaterComponents", () => {
   describe("determinism", () => {
     it("produces same component IDs on repeated initialization", () => {
       const map = createGameMap(twoComponentsMapData);
-      const wc1 = new GameMapWaterComponents(map);
-      const wc2 = new GameMapWaterComponents(map);
+      const wc1 = new ConnectedComponents(map);
+      const wc2 = new ConnectedComponents(map);
 
       wc1.initialize();
       wc2.initialize();
@@ -125,8 +125,8 @@ describe("GameMapWaterComponents", () => {
   describe("direct terrain access optimization", () => {
     it("produces same results with accessTerrainDirectly=false", () => {
       const map = createGameMap(twoComponentsMapData);
-      const wcDirect = new GameMapWaterComponents(map, true);
-      const wcIndirect = new GameMapWaterComponents(map, false);
+      const wcDirect = new ConnectedComponents(map, true);
+      const wcIndirect = new ConnectedComponents(map, false);
 
       wcDirect.initialize();
       wcIndirect.initialize();

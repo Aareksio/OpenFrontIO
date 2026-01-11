@@ -1,15 +1,14 @@
-// Water component identification using flood-fill
-// Copied from navmesh/WaterComponents.ts with standard HPA* terminology
+// Connected Component Labeling using flood-fill
 
-import { GameMap, TileRef } from "../../../game/GameMap";
+import { GameMap, TileRef } from "../../game/GameMap";
 
 export const LAND_MARKER = 0xff; // Must fit in Uint8Array
 
 /**
- * Manages water component identification using flood-fill.
- * Pre-allocates buffers and provides explicit initialization.
+ * Connected component labeling for grid-based maps.
+ * Identifies isolated regions using scan-line flood-fill.
  */
-export class GameMapWaterComponents {
+export class ConnectedComponents {
   private readonly width: number;
   private readonly height: number;
   private readonly numTiles: number;

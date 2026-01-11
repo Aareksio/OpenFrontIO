@@ -3,8 +3,8 @@ import { Config } from "../configuration/Config";
 import {
   AbstractGraph,
   AbstractGraphBuilder,
-} from "../pathfinding/algorithms/hpa/AbstractGraph";
-import { GameMapHPAStar } from "../pathfinding/algorithms/hpa/AStarHPA";
+} from "../pathfinding/algorithms/AbstractGraph";
+import { AStarWaterHierarchical } from "../pathfinding/algorithms/AStar.WaterHierarchical";
 import { PathFinder } from "../pathfinding/types";
 import { AllPlayersStats, ClientID, Winner } from "../Schemas";
 import { simpleHash } from "../Util";
@@ -93,7 +93,7 @@ export class GameImpl implements Game {
 
   private _isPaused: boolean = false;
   private _miniWaterGraph: AbstractGraph | null = null;
-  private _miniWaterHPA: GameMapHPAStar | null = null;
+  private _miniWaterHPA: AStarWaterHierarchical | null = null;
 
   constructor(
     private _humans: PlayerInfo[],
@@ -121,7 +121,7 @@ export class GameImpl implements Game {
       );
       this._miniWaterGraph = graphBuilder.build(false);
       // HPA* operates on minimap with its abstract graph
-      this._miniWaterHPA = new GameMapHPAStar(
+      this._miniWaterHPA = new AStarWaterHierarchical(
         this.miniGameMap,
         this._miniWaterGraph,
         { cachePaths: true },

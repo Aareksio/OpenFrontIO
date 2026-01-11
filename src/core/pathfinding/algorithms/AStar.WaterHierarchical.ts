@@ -1,18 +1,15 @@
-// GameMap HPA* - Hierarchical Pathfinding A* for GameMap
-
-import { GameMap, TileRef } from "../../../game/GameMap";
-import { PathFinder } from "../../types";
-import { BoundedAStar } from "../AStarBounded";
+import { GameMap, TileRef } from "../../game/GameMap";
+import { PathFinder } from "../types";
+import { AbstractGraphAStar } from "./AStar.AbstractGraph";
+import { AStarBounded } from "./AStar.Bounded";
 import { AbstractGraph, AbstractNode } from "./AbstractGraph";
-import { AbstractGraphAStar } from "./AStarAbstractGraph";
-import { SourceSelector } from "./SourceSelector";
-import { TileBFS } from "./TileBFS";
-import { LAND_MARKER } from "./WaterComponents";
+import { BFSGrid } from "./BFS.Grid";
+import { LAND_MARKER } from "./ConnectedComponents";
+import { SourceSelector } from "./hpa/SourceSelector";
 
 type PathDebugInfo = {
   nodePath: TileRef[] | null;
   initialPath: TileRef[] | null;
-  // smoothPath removed - now handled by SmoothingTransformer
   graph: {
     clusterSize: number;
     nodes: Array<{ id: number; tile: TileRef }>;
@@ -28,11 +25,11 @@ type PathDebugInfo = {
   timings: { [key: string]: number };
 };
 
-export class GameMapHPAStar implements PathFinder<number> {
-  private tileBFS: TileBFS;
+export class AStarWaterHierarchical implements PathFinder<number> {
+  private tileBFS: BFSGrid;
   private abstractAStar: AbstractGraphAStar;
-  private localAStar: BoundedAStar;
-  private localAStarMultiCluster: BoundedAStar;
+  private localAStar: AStarBounded;
+  private localAStarMultiCluster: AStarBounded;
   private sourceSelector: SourceSelector;
 
   public debugInfo: PathDebugInfo | null = null;
@@ -46,7 +43,7 @@ export class GameMapHPAStar implements PathFinder<number> {
     } = {},
   ) {
     // BFS for nearest node search
-    this.tileBFS = new TileBFS(map.width() * map.height());
+    this.tileBFS = new BFSGrid(map.width() * map.height());
 
     const clusterSize = graph.clusterSize;
 
@@ -55,12 +52,12 @@ export class GameMapHPAStar implements PathFinder<number> {
 
     // BoundedAStar for cluster-bounded local pathfinding
     const maxLocalNodes = clusterSize * clusterSize;
-    this.localAStar = new BoundedAStar(map, maxLocalNodes);
+    this.localAStar = new AStarBounded(map, maxLocalNodes);
 
     // BoundedAStar for multi-cluster (3x3) local pathfinding
     const multiClusterSize = clusterSize * 3;
     const maxMultiClusterNodes = multiClusterSize * multiClusterSize;
-    this.localAStarMultiCluster = new BoundedAStar(map, maxMultiClusterNodes);
+    this.localAStarMultiCluster = new AStarBounded(map, maxMultiClusterNodes);
 
     // SourceSelector for multi-source search
     this.sourceSelector = new SourceSelector(this.map, this.graph);

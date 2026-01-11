@@ -1,5 +1,5 @@
 import { Config } from "../configuration/Config";
-import { AbstractGraph } from "../pathfinding/algorithms/hpa/AbstractGraph";
+import { AbstractGraph } from "../pathfinding/algorithms/AbstractGraph";
 import { PathFinder } from "../pathfinding/types";
 import { AllPlayersStats, ClientID } from "../Schemas";
 import { getClanTag } from "../Util";

@@ -1,8 +1,6 @@
-// Abstract Graph A* - inlined A* for abstract graph routing
-
-import { PathFinder } from "../../types";
-import { BucketQueue, MinHeap, PriorityQueue } from "../PriorityQueue";
+import { PathFinder } from "../types";
 import { AbstractGraph } from "./AbstractGraph";
+import { BucketQueue, MinHeap, PriorityQueue } from "./PriorityQueue";
 
 export interface AbstractGraphAStarConfig {
   heuristicWeight?: number;

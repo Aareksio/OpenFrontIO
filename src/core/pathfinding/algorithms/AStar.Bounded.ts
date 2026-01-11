@@ -1,5 +1,3 @@
-// Bounded A* for cluster-local pathfinding in HPA*
-
 import { GameMap, TileRef } from "../../game/GameMap";
 import { PathFinder } from "../types";
 import { BucketQueue } from "./PriorityQueue";
@@ -18,7 +16,7 @@ export interface SearchBounds {
   maxY: number;
 }
 
-export class BoundedAStar implements PathFinder<number> {
+export class AStarBounded implements PathFinder<number> {
   private stamp = 1;
 
   private readonly closedStamp: Uint32Array;

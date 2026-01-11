@@ -1,10 +1,5 @@
-export interface TileBFSAdapter<T> {
-  visitor(node: number, dist: number): T | null | undefined;
-  isValidNode(node: number): boolean;
-}
-
 // 4-direction grid BFS with stamp-based visited tracking
-export class TileBFS {
+export class BFSGrid {
   private stamp = 1;
 
   private readonly visitedStamp: Uint32Array;
@@ -17,48 +12,57 @@ export class TileBFS {
     this.dist = new Uint16Array(numNodes);
   }
 
-  search<T>(
+  /**
+   * Grid BFS search with visitor pattern.
+   * @param start - Starting node(s)
+   * @param maxDistance - Maximum distance to search
+   * @param isValidNode - Filter for traversable nodes
+   * @param visitor - Called for each node:
+   *   - Returns R: Found target, return immediately
+   *   - Returns undefined: Valid node, explore neighbors
+   *   - Returns null: Reject node, don't explore neighbors
+   */
+  search<R>(
     width: number,
     height: number,
-    start: number,
+    start: number | number[],
     maxDistance: number,
-    isValidNode: TileBFSAdapter<T>["isValidNode"],
-    visitor: TileBFSAdapter<T>["visitor"],
-  ): T | null {
+    isValidNode: (node: number) => boolean,
+    visitor: (node: number, dist: number) => R | null | undefined,
+  ): R | null {
     const stamp = this.nextStamp();
     const lastRowStart = (height - 1) * width;
+    const starts = typeof start === "number" ? [start] : start;
 
     let head = 0;
     let tail = 0;
 
-    this.visitedStamp[start] = stamp;
-    this.dist[start] = 0;
-    this.queue[tail++] = start;
+    for (const s of starts) {
+      this.visitedStamp[s] = stamp;
+      this.dist[s] = 0;
+      this.queue[tail++] = s;
+    }
 
     while (head < tail) {
       const node = this.queue[head++];
-      const currentDist = this.dist[node];
+      const dist = this.dist[node];
 
-      if (currentDist > maxDistance) {
-        continue;
-      }
-
-      // Call visitor:
-      // - Returns T: Found target, return immediately
-      // - Returns null: Reject tile, don't explore neighbors
-      // - Returns undefined: Valid tile, explore neighbors
-      const result = visitor(node, currentDist);
+      const result = visitor(node, dist);
 
       if (result !== null && result !== undefined) {
         return result;
       }
 
-      // If visitor returned null, reject this tile and don't explore neighbors
       if (result === null) {
         continue;
       }
 
-      const nextDist = currentDist + 1;
+      const nextDist = dist + 1;
+
+      if (nextDist > maxDistance) {
+        continue;
+      }
+
       const x = node % width;
 
       // North

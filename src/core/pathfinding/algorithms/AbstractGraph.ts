@@ -1,8 +1,6 @@
-// Abstract Graph for HPA* - Hierarchical Pathfinding A*
-
-import { GameMap, TileRef } from "../../../game/GameMap";
-import { TileBFS } from "./TileBFS";
-import { GameMapWaterComponents } from "./WaterComponents";
+import { GameMap, TileRef } from "../../game/GameMap";
+import { BFSGrid } from "./BFS.Grid";
+import { ConnectedComponents } from "./ConnectedComponents";
 
 export interface AbstractNode {
   id: number;
@@ -52,7 +50,7 @@ export class AbstractGraph {
   private _pathCache: (TileRef[] | null)[] = [];
 
   // Water components for componentId lookup
-  private _waterComponents: GameMapWaterComponents | null = null;
+  private _waterComponents: ConnectedComponents | null = null;
 
   constructor(
     readonly clusterSize: number,
@@ -137,7 +135,7 @@ export class AbstractGraph {
     this._pathCache = new Array(this._edges.length * 2).fill(null);
   }
 
-  setWaterComponents(wc: GameMapWaterComponents): void {
+  setWaterComponents(wc: ConnectedComponents): void {
     this._waterComponents = wc;
   }
 
@@ -209,8 +207,8 @@ export class AbstractGraphBuilder {
   private readonly height: number;
   private readonly clustersX: number;
   private readonly clustersY: number;
-  private readonly tileBFS: TileBFS;
-  private readonly waterComponents: GameMapWaterComponents;
+  private readonly tileBFS: BFSGrid;
+  private readonly waterComponents: ConnectedComponents;
 
   // Build state
   private graph!: AbstractGraph;
@@ -229,8 +227,8 @@ export class AbstractGraphBuilder {
     this.height = map.height();
     this.clustersX = Math.ceil(this.width / clusterSize);
     this.clustersY = Math.ceil(this.height / clusterSize);
-    this.tileBFS = new TileBFS(this.width * this.height);
-    this.waterComponents = new GameMapWaterComponents(map);
+    this.tileBFS = new BFSGrid(this.width * this.height);
+    this.waterComponents = new ConnectedComponents(map);
   }
 
   build(debug: boolean): AbstractGraph {
